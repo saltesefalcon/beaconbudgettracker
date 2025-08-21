@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Beacon Weekly Food Budget Tracker</title>
+  <style>
+    :root { --bg:#0f172a; --panel:#111827; --ink:#e5e7eb; --muted:#9ca3af; --accent:#22c55e; --warn:#ef4444; --brand:#0ea5e9; }
+    html, body { margin:0; padding:0; height:100%; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, "Helvetica Neue", Arial; background:var(--bg); color: var(--ink); }
+    .wrap { max-width: 1100px; margin: 24px auto; padding: 16px; }
+    h1 { font-size: 1.6rem; margin: 0 0 4px; }
+    .sub { color: var(--muted); font-size: .95rem; margin-bottom: 16px; }
+    .panel { background: var(--panel); border-radius: 14px; padding: 14px; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
+    .toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom: 12px; }
+    .toolbar > * { margin-right: 6px; }
+    input[type="number"], input[type="text"], select {
+      background:#0b1220; color:var(--ink); border:1px solid #1f2937; border-radius:10px; padding:8px 10px; outline:0;
+      width: 100%;
+    }
+    button {
+      background:#1f2937; color:var(--ink); border:1px solid #374151; border-radius:10px; padding:8px 12px; cursor:pointer;
+    }
+    button.primary { background: var(--brand); border-color: #0284c7; color:white; }
+    button.success { background: var(--accent); border-color: #16a34a; color:black; }
+    button.warn { background: var(--warn); border-color: #b91c1c; color:white; }
+    button.ghost { background: transparent; border-color:#374151; }
+    table { width:100%; border-collapse: collapse; font-size: .95rem; table-layout: fixed; }
+    th, td { border-bottom:1px solid #1f2937; padding:8px; text-align:right; }
+    th:first-child, td:first-child { text-align:left; position: sticky; left: 0; background: var(--panel); }
+    thead th { position: sticky; top: 0; z-index: 2; background: #0b1220; }
+    tbody tr:hover td { background: #0b1220; }
+    .totals { font-weight:700; }
+    .over { color: var(--warn); font-weight:700; }
+    .under { color: var(--accent); font-weight:700; }
+    .note { color: var(--muted); font-size: .85rem; }
+
+    .summary-banner { display:flex; gap:16px; flex-wrap:wrap; align-items:center; background:#0b1220; border:1px solid #1f2937; padding:10px 12px; border-radius:12px; }
+    .chip { padding:6px 10px; border-radius:999px; background:#111827; border:1px solid #1f2937; }
+    .chip b { margin-right:6px; }
+    .chip.over { border-color:#7f1d1d; background:#1b1212; }
+    .chip.under { border-color:#14532d; background:#0f1a12; }
+
+    .howto { display:none; }
+    .howto.open { display:block; }
+
+    .modal { position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.5); z-index:10000; }
+    .modal.open { display:flex; }
+    .modal .card { background:var(--panel); border:1px solid #1f2937; padding:16px; border-radius:14px; width:min(720px, 94vw); max-height: 88vh; overflow:auto; }
+    .row { display:grid; grid-template-columns: 1fr 180px; gap:10px; align-items:center; margin-bottom:8px; }
+    .row label { color:var(--muted); }
+    .row .pct { display:flex; align-items:center; gap:6px; }
+    .editorList { width:100%; border-collapse: collapse; }
+    .editorList th, .editorList td { border-bottom:1px solid #1f2937; padding:6px; text-align:left; }
+    .editor-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:10px; }
+    .small { font-size:.85rem; color:var(--muted); }
+    .inline-btn { padding:4px 8px; }
+  </style>
+
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Beacon Weekly Food Budget Tracker</h1>
+    <div class="sub">(Monday → Sunday + Totals) with live per-day budgets & over/under.</div>
+    <div class="panel">
+      <div class="toolbar">
+        <label>Week of <input id="weekOf" type="date" /></label>
+        <button class="primary" id="newWeek">New Blank Week</button>
+        <button id="save">Save</button>
+        <button id="load">Load</button>
+        <button class="success" id="exportJSON">Export JSON</button>
+        <button id="exportExcel">Export Excel</button>
+        <input type="file" id="importFile" accept=".json" />
+        <button id="toggleHowto" class="ghost">Show Help</button>
+        <button id="openSettings" class="ghost">Budget Settings</button>
+      </div>
+
+      <div class="summary-banner" aria-live="polite">
+        <div class="chip"><b>Projected:</b> <span id="chipProj">$0.00</span></div>
+        <div class="chip"><b>Actual:</b> <span id="chipAct">$0.00</span></div>
+        <div class="chip"><b>Sales Δ:</b> <span id="chipSalesDelta">$0.00</span></div>
+        <div class="chip"><b>Weekly Budget:</b> <span id="chipBudget">$0.00</span></div>
+        <div class="chip"><b>Purchases:</b> <span id="chipPurch">$0.00</span></div>
+        <div class="chip" id="chipNet"><b>Net O/U:</b> <span id="chipNetVal">$0.00</span></div>
+      </div>
+
+      <div class="panel howto" id="howto">
+        <h3 style="margin-top:0">How it works</h3>
+        <ol class="note" style="line-height:1.6">
+          <li>Budgets are auto-calculated from sales using <b>Budget Settings</b>.</li>
+          <li>Daily budgets are allocated <b>Proportional to Projected Sales</b> (or evenly if chosen).</li>
+          <li>Per-day O/U = <code>Daily Budget - Daily Purchases</code>. Weekly O/U equals the sum of days.</li>
+        </ol>
+      </div>
+
+      <table id="budgetTable" aria-label="Weekly budget and purchases table" style="margin-top:12px; width:100%">
+        <thead>
+          <tr>
+            <th>Line</th>
+            <th>Monday</th>
+            <th>Tuesday</th>
+            <th>Wednesday</th>
+            <th>Thursday</th>
+            <th>Friday</th>
+            <th>Saturday</th>
+            <th>Sunday</th>
+            <th>Totals</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+
+      <div class="note" style="margin-top:10px">Built from your spreadsheet layout. No server required.</div>
+    </div>
+  </div>
+
+  <div class="modal" id="settingsModal" role="dialog" aria-modal="true" aria-label="Budget Settings">
+    <div class="card">
+      <h3 style="margin-top:0">Budget Settings</h3>
+      <div class="row">
+        <label>Base budgets on:</label>
+        <div>
+          <select id="budgetBase">
+            <option value="projected">Projected Sales</option>
+            <option value="actual">Actual Sales</option>
+          </select>
+        </div>
+      </div>
+      <div class="row">
+        <label>Daily allocation method:</label>
+        <div>
+          <select id="allocMethod">
+            <option value="proportional">Proportional to daily Projected Sales</option>
+            <option value="even">Evenly across 7 days</option>
+          </select>
+        </div>
+      </div>
+      <div class="row"><label>Meat %</label><div class="pct"><input id="pct_meat" type="number" step="0.1" min="0" max="100" value="25" />%</div></div>
+      <div class="row"><label>Seafood %</label><div class="pct"><input id="pct_sea" type="number" step="0.1" min="0" max="100" value="15" />%</div></div>
+      <div class="row"><label>Bread/Pasta %</label><div class="pct"><input id="pct_bread" type="number" step="0.1" min="0" max="100" value="10" />%</div></div>
+      <div class="row"><label>Produce %</label><div class="pct"><input id="pct_produce" type="number" step="0.1" min="0" max="100" value="20" />%</div></div>
+      <div class="row"><label>Pantry %</label><div class="pct"><input id="pct_pantry" type="number" step="0.1" min="0" max="100" value="15" />%</div></div>
+      <div class="row"><label>Dairy %</label><div class="pct"><input id="pct_dairy" type="number" step="0.1" min="0" max="100" value="15" />%</div></div>
+      <p class="note">Budgets update automatically when sales change.</p>
+      <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:10px">
+        <button id="closeSettings">Close</button>
+        <button class="success" id="applySettings">Apply</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="purchaseModal" role="dialog" aria-modal="true" aria-label="Edit Purchases">
+    <div class="card">
+      <h3 style="margin:0 0 8px 0">Edit Purchases <span class="small" id="purchaseModalSubtitle"></span></h3>
+      <table class="editorList" id="editorTable">
+        <thead>
+          <tr>
+            <th style="width:40%">Amount</th>
+            <th style="width:45%">Supplier</th>
+            <th style="width:15%"></th>
+          </tr>
+        </thead>
+        <tbody id="editorBody"></tbody>
+      </table>
+      <div class="editor-actions">
+        <button class="ghost inline-btn" id="addLine">+ Add line</button>
+        <div style="flex:1"></div>
+        <button id="cancelEdit">Cancel</button>
+        <button class="success" id="applyEdit">Calculate</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const DAYS = ["mon","tue","wed","thu","fri","sat","sun"];
+    const DAY_LABEL = {mon:"Monday",tue:"Tuesday",wed:"Wednesday",thu:"Thursday",fri:"Friday",sat:"Saturday",sun:"Sunday"};
+    const SUPPLIERS = {
+      meat_purch: ["Woodward Meats","The Chefs Warehouse","Jesse Tree","Other"],
+      seafood_purch: ["Aqua Blue","Allseas","Other"],
+      bread_purch: ["CMFRT","Cobs","Other"],
+      produce_purch: ["Bondi","Costco","Other"],
+      pantry_purch: ["Costco","Sysco","Jesse Tree","Other"],
+      dairy_purch: ["Sysco","Jesse Tree","Costco","Other"]
+    };
+
+    const LINES = [
+      { key: "proj_sales",  label: "Projected Food Sales", type: "days" },
+      { key: "actual_sales",label: "Actual Sales",         type: "days" },
+      { key: "sales_delta_daily", label: "Sales O/U",      type: "calcSalesDays" },
+
+      { key: "meat_budget",       label: "Meat Budget",        type: "autoDays", pctKey:"meat" },
+      { key: "seafood_budget",    label: "Seafood Budget",     type: "autoDays", pctKey:"sea" },
+      { key: "bread_budget",      label: "Bread/Pasta Budget", type: "autoDays", pctKey:"bread" },
+      { key: "produce_budget",    label: "Produce Budget",     type: "autoDays", pctKey:"produce" },
+      { key: "pantry_budget",     label: "Pantry Budget",      type: "autoDays", pctKey:"pantry" },
+      { key: "dairy_budget",      label: "Dairy Budget",       type: "autoDays", pctKey:"dairy" },
+
+      { key: "spacer1", label: "", type:"spacer" },
+
+      { key: "meat_purch",    label: "Meat Purchases",    type: "purchases" },
+      { key: "meat_over",     label: "over/under",        type: "calcBudgetDays", dependsOnBudget: "meat_budget", dependsOnPurch: "meat_purch" },
+
+      { key: "seafood_purch", label: "Seafood Purchases", type: "purchases" },
+      { key: "seafood_over",  label: "over/under",        type: "calcBudgetDays", dependsOnBudget: "seafood_budget", dependsOnPurch: "seafood_purch" },
+
+      { key: "bread_purch",   label: "Bread/Pasta Purchases", type: "purchases" },
+      { key: "bread_over",    label: "over/under",           type: "calcBudgetDays", dependsOnBudget: "bread_budget", dependsOnPurch: "bread_purch" },
+
+      { key: "produce_purch", label: "Produce Purchases", type: "purchases" },
+      { key: "produce_over",  label: "over/under",        type: "calcBudgetDays", dependsOnBudget: "produce_budget", dependsOnPurch: "produce_purch" },
+
+      { key: "pantry_purch",  label: "Pantry Purchases",  type: "purchases" },
+      { key: "pantry_over",   label: "over/under",        type: "calcBudgetDays", dependsOnBudget: "pantry_budget", dependsOnPurch: "pantry_purch" },
+
+      { key: "dairy_purch",   label: "Dairy Purchases",   type: "purchases" },
+      { key: "dairy_over",    label: "over/under",        type: "calcBudgetDays", dependsOnBudget: "dairy_budget", dependsOnPurch: "dairy_purch" },
+
+      { key: "overall_day_ou", label: "Overall Over/Under", type: "overallDay" }
+    ];
+
+    function blankRow() { return { mon:"",tue:"",wed:"",thu:"",fri:"",sat:"",sun:"", total: "" }; }
+    function blankWeek() { const o={}; for (const l of LINES) o[l.key]=blankRow(); return o; }
+
+    let state = {
+      meta: { weekOf: "" },
+      data: blankWeek(),
+      details: {},
+      settings: { base: "projected", alloc:"proportional", pct: { meat:25, sea:15, bread:10, produce:20, pantry:15, dairy:15 } }
+    };
+
+    const tbody = document.getElementById("tbody");
+    function num(v){ const n=parseFloat(v); return isNaN(n)?0:n; }
+    function money(n){ return (Math.round(n*100)/100).toFixed(2); }
+    function sumDays(row){ return ["mon","tue","wed","thu","fri","sat","sun"].reduce((a,d)=>a+num(row[d]),0); }
+
+    function distributeBudget(weekly, projRow){
+      const out = {mon:0,tue:0,wed:0,thu:0,fri:0,sat:0,sun:0};
+      if (state.settings.alloc === "even") {
+        const each = weekly/7;
+        for (const d of DAYS) out[d] = each;
+      } else {
+        const totals = sumDays(projRow);
+        if (totals>0) {
+          for (const d of DAYS) out[d] = weekly * (num(projRow[d]) / totals);
+        } else {
+          const each = weekly/7;
+          for (const d of DAYS) out[d] = each;
+        }
+      }
+      return out;
+    }
+
+    function autoBudgets(){
+      const baseRow = state.settings.base === "actual" ? state.data.actual_sales : state.data.proj_sales;
+      const baseSum = sumDays(baseRow);
+      for (const line of LINES) {
+        if (line.type === "autoDays") {
+          const pct = num(state.settings.pct[line.pctKey]);
+          const weekly = baseSum * (pct/100);
+          const parts = distributeBudget(weekly, state.data.proj_sales);
+          let total = 0;
+          for (const d of DAYS) { state.data[line.key][d] = money(parts[d]); total += parts[d]; }
+          state.data[line.key].total = money(total);
+        }
+      }
+    }
+
+    function recalc(){
+      autoBudgets();
+      for (const line of LINES) {
+        const row = state.data[line.key];
+        if (!row) continue;
+
+        if (line.type === "days") {
+          row.total = money(sumDays(row));
+        }
+        if (line.type === "calcSalesDays") {
+          let total=0;
+          for (const d of DAYS){
+            const v = num(state.data.actual_sales[d]) - num(state.data.proj_sales[d]);
+            state.data[line.key][d] = money(v);
+            total += v;
+          }
+          state.data[line.key].total = money(total);
+        }
+        if (line.type === "calcBudgetDays") {
+          let total=0;
+          for (const d of DAYS){
+            const bud = num(state.data[line.dependsOnBudget]?.[d]);
+            const purch = num(state.data[line.dependsOnPurch]?.[d]);
+            const hasPurch = state.data[line.dependsOnPurch]?.[d] !== "" && state.data[line.dependsOnPurch]?.[d] != null;
+            const v = hasPurch ? bud - purch : 0;
+            state.data[line.key][d] = money(v);
+            total += v;
+          }
+          state.data[line.key].total = money(total);
+        }
+        if (line.type === "overallDay") {
+          let total=0;
+          for (const d of DAYS){
+            const budDay = ["meat_budget","seafood_budget","bread_budget","produce_budget","pantry_budget","dairy_budget"].reduce((a,k)=>a+num(state.data[k][d]),0);
+            const purDay = ["meat_purch","seafood_purch","bread_purch","produce_purch","pantry_purch","dairy_purch"].reduce((a,k)=>a+num(state.data[k][d]),0);
+            const v = budDay - purDay;
+            state.data[line.key][d] = money(v);
+            total += v;
+          }
+          state.data[line.key].total = money(total);
+        }
+      }
+      render();
+      updateSummary();
+    }
+
+    let recalcTimer = null;
+    function scheduleRecalc(){ clearTimeout(recalcTimer); recalcTimer = setTimeout(recalc, 250); }
+
+    function buildInput(lineKey, dayKey){
+      const input=document.createElement("input");
+      input.type="number"; input.step="0.01"; input.inputMode="decimal";
+      input.value=state.data[lineKey][dayKey];
+      input.addEventListener("input",(e)=>{ state.data[lineKey][dayKey]=e.target.value; scheduleRecalc(); persist(); });
+      return input;
+    }
+
+    function buildPurchaseCell(lineKey, dayKey){
+      const td=document.createElement("td");
+      const input=document.createElement("input");
+      input.type="text"; input.readOnly=true;
+      input.placeholder="Click to add items";
+      input.value=state.data[lineKey][dayKey];
+      input.addEventListener("click", ()=> openPurchaseEditor(lineKey, dayKey));
+      td.appendChild(input);
+      return td;
+    }
+
+    function buildDisplayCell(lineKey, dayKey){
+      const td=document.createElement("td");
+      const raw = state.data[lineKey][dayKey];
+      const valNum = num(raw);
+      const isNumber = !(raw === "" || raw === null || isNaN(valNum));
+      td.className = "totals " + (lineKey.endsWith("_over") || lineKey==="overall_day_ou" || lineKey==="sales_delta_daily" ? (valNum<0?"over":valNum>0?"under":"") : "");
+      td.textContent = isNumber ? money(valNum) : "";
+      return td;
+    }
+
+    function render(){
+      tbody.innerHTML="";
+      for (const line of LINES){
+        const tr=document.createElement("tr");
+        const th=document.createElement("th"); th.textContent=line.label; tr.appendChild(th);
+
+        if (line.type==="spacer"){
+          const td=document.createElement("td"); td.colSpan=8; td.innerHTML="&nbsp;"; tr.appendChild(td); tbody.appendChild(tr); continue;
+        }
+
+        for (const d of DAYS){
+          if (line.type==="days"){
+            tr.appendChild((buildInput(line.key,d)));
+          } else if (line.type==="purchases"){
+            tr.appendChild(buildPurchaseCell(line.key,d));
+          } else {
+            tr.appendChild(buildDisplayCell(line.key,d));
+          }
+        }
+        const totalTd=document.createElement("td");
+        const val = num(state.data[line.key].total);
+        if (line.type==="days"){
+          totalTd.className="totals"; totalTd.textContent=money(val);
+        } else if (line.type==="purchases"){
+          totalTd.className="totals"; totalTd.textContent=money(val);
+        } else {
+          totalTd.className="totals " + (val<0?"over":val>0?"under":""); totalTd.textContent=money(val);
+        }
+        tr.appendChild(totalTd);
+        tbody.appendChild(tr);
+      }
+    }
+
+    function updateSummary(){
+      const budgets = ["meat_budget","seafood_budget","bread_budget","produce_budget","pantry_budget","dairy_budget"].reduce((a,k)=>a+num(state.data[k].total),0);
+      const purch = ["meat_purch","seafood_purch","bread_purch","produce_purch","pantry_purch","dairy_purch"].reduce((a,k)=>a+sumDays(state.data[k]),0);
+      const proj = sumDays(state.data.proj_sales);
+      const act = sumDays(state.data.actual_sales);
+      document.getElementById("chipProj").textContent="$"+money(proj);
+      document.getElementById("chipAct").textContent="$"+money(act);
+      document.getElementById("chipSalesDelta").textContent="$"+money(act-proj);
+      document.getElementById("chipBudget").textContent="$"+money(budgets);
+      document.getElementById("chipPurch").textContent="$"+money(purch);
+      const net = budgets - purch;
+      const chipNet=document.getElementById("chipNet");
+      document.getElementById("chipNetVal").textContent="$"+money(net);
+      chipNet.classList.remove("over","under"); if (net<0) chipNet.classList.add("over"); if (net>0) chipNet.classList.add("under");
+    }
+
+    // Purchase editor logic
+    let editCtx = null;
+    const purchaseModal = document.getElementById("purchaseModal");
+    const editorBody = document.getElementById("editorBody");
+    function openPurchaseEditor(lineKey, dayKey){
+      editCtx = { lineKey, dayKey };
+      const niceLabel = LINES.find(l=>l.key===lineKey)?.label || "";
+      document.getElementById("purchaseModalSubtitle").textContent = `— ${niceLabel} • ${DAY_LABEL[dayKey]}`;
+      editorBody.innerHTML="";
+      const items = (state.details[lineKey]?.[dayKey]) ? [...state.details[lineKey][dayKey]] : [];
+      if (items.length===0) items.push({amount:"", supplier: SUPPLIERS[lineKey]?.[0] || "Other"});
+      for (const it of items) addEditorRow(it.amount, it.supplier, lineKey);
+      purchaseModal.classList.add("open");
+    }
+    function addEditorRow(amount="", supplier="Other", lineKey=null){
+      const tr = document.createElement("tr");
+      const tdAmt = document.createElement("td");
+      const tdSup = document.createElement("td");
+      const tdDel = document.createElement("td");
+      const inp = document.createElement("input");
+      inp.type="number"; inp.step="0.01"; inp.inputMode="decimal"; inp.value=amount;
+      tdAmt.appendChild(inp);
+      const sel = document.createElement("select");
+      const options = SUPPLIERS[editCtx?.lineKey] || ["Other"];
+      options.forEach(opt => { const o=document.createElement("option"); o.value=opt; o.textContent=opt; if (opt===supplier) o.selected=true; sel.appendChild(o); });
+      tdSup.appendChild(sel);
+      const del = document.createElement("button"); del.textContent="Delete"; del.className="warn inline-btn";
+      del.addEventListener("click", ()=> tr.remove());
+      tdDel.appendChild(del);
+      tr.appendChild(tdAmt); tr.appendChild(tdSup); tr.appendChild(tdDel);
+      editorBody.appendChild(tr);
+    }
+    document.getElementById("addLine").addEventListener("click", ()=> addEditorRow());
+    document.getElementById("cancelEdit").addEventListener("click", ()=> purchaseModal.classList.remove("open"));
+    document.getElementById("applyEdit").addEventListener("click", ()=>{
+      const rows = [...editorBody.querySelectorAll("tr")];
+      const items = rows.map(r=>{
+        const amt = r.querySelector("input").value;
+        const sup = r.querySelector("select").value;
+        return {amount: amt, supplier: sup};
+      }).filter(x => x.amount!=="" && !isNaN(parseFloat(x.amount)));
+      state.details[editCtx.lineKey] = state.details[editCtx.lineKey] || {};
+      state.details[editCtx.lineKey][editCtx.dayKey] = items;
+      const total = items.reduce((a,x)=>a + (parseFloat(x.amount)||0), 0);
+      state.data[editCtx.lineKey][editCtx.dayKey] = money(total);
+      state.data[editCtx.lineKey].total = money(sumDays(state.data[editCtx.lineKey]));
+      purchaseModal.classList.remove("open");
+      recalc(); persist();
+    });
+
+    // Settings modal
+    const modal = document.getElementById("settingsModal");
+    document.getElementById("openSettings").addEventListener("click", ()=>{
+      document.getElementById("budgetBase").value = state.settings.base;
+      document.getElementById("allocMethod").value = state.settings.alloc;
+      document.getElementById("pct_meat").value = state.settings.pct.meat;
+      document.getElementById("pct_sea").value = state.settings.pct.sea;
+      document.getElementById("pct_bread").value = state.settings.pct.bread;
+      document.getElementById("pct_produce").value = state.settings.pct.produce;
+      document.getElementById("pct_pantry").value = state.settings.pct.pantry;
+      document.getElementById("pct_dairy").value = state.settings.pct.dairy;
+      modal.classList.add("open");
+    });
+    document.getElementById("closeSettings").addEventListener("click", ()=> modal.classList.remove("open"));
+    document.getElementById("applySettings").addEventListener("click", ()=>{
+      state.settings.base = document.getElementById("budgetBase").value;
+      state.settings.alloc = document.getElementById("allocMethod").value;
+      state.settings.pct.meat = parseFloat(document.getElementById("pct_meat").value)||0;
+      state.settings.pct.sea = parseFloat(document.getElementById("pct_sea").value)||0;
+      state.settings.pct.bread = parseFloat(document.getElementById("pct_bread").value)||0;
+      state.settings.pct.produce = parseFloat(document.getElementById("pct_produce").value)||0;
+      state.settings.pct.pantry = parseFloat(document.getElementById("pct_pantry").value)||0;
+      state.settings.pct.dairy = parseFloat(document.getElementById("pct_dairy").value)||0;
+      modal.classList.remove("open");
+      recalc(); persist();
+    });
+
+    // Help
+    document.getElementById("toggleHowto").addEventListener("click", ()=>{
+      const h=document.getElementById("howto"); h.classList.toggle("open");
+      document.getElementById("toggleHowto").textContent = h.classList.contains("open") ? "Hide Help" : "Show Help";
+    });
+
+    // Persistence
+    function persist(){ localStorage.setItem("beacon_budget_draft", JSON.stringify(state)); }
+    function load(){ const raw=localStorage.getItem("beacon_budget_draft"); if(!raw) return; try{ const obj=JSON.parse(raw); if(obj) state=obj; }catch{} }
+    document.getElementById("newWeek").addEventListener("click", ()=>{ state.data=blankWeek(); state.details={}; persist(); recalc(); });
+    document.getElementById("save").addEventListener("click", ()=>{
+      const key=prompt("Name this week:", document.getElementById("weekOf").value); if(!key) return;
+      localStorage.setItem("beacon_budget_"+key, JSON.stringify(state)); alert("Saved!");
+    });
+    document.getElementById("load").addEventListener("click", ()=>{
+      const items=Object.keys(localStorage).filter(k=>k.startsWith("beacon_budget_"));
+      if(!items.length){ alert("No saved weeks yet."); return; }
+      const key=prompt("Enter name:\n"+items.map(k=>k.replace("beacon_budget_","")).join("\n")); if(!key) return;
+      const raw=localStorage.getItem("beacon_budget_"+key); if(!raw){ alert("Not found."); return; }
+      state=JSON.parse(raw); recalc(); persist();
+    });
+    document.getElementById("exportJSON").addEventListener("click", ()=>{
+      const blob=new Blob([JSON.stringify(state,null,2)], {type:"application/json"});
+      const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=(state.meta.weekOf||"beacon_week")+"_budget.json"; a.click(); URL.revokeObjectURL(a.href);
+    });
+    document.getElementById("importFile").addEventListener("change", (e)=>{
+      const f=e.target.files?.[0]; if(!f) return; const r=new FileReader();
+      r.onload=(ev)=>{ try{ const obj=JSON.parse(ev.target.result); if(obj){ state=obj; recalc(); persist(); } } catch { alert("Invalid file"); } };
+      r.readAsText(f);
+    });
+    document.getElementById("weekOf").addEventListener("input", (e)=>{ state.meta.weekOf=e.target.value; persist(); });
+
+    document.getElementById("exportExcel").addEventListener("click", () => {
+      const header = ["Line","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday","Totals"];
+      const rows = [header];
+      const labelByKey = Object.fromEntries(LINES.map(l => [l.key, l.label]));
+      for (const line of LINES) {
+        if (line.type === "spacer") continue;
+        const r = [
+          labelByKey[line.key],
+          state.data[line.key].mon,
+          state.data[line.key].tue,
+          state.data[line.key].wed,
+          state.data[line.key].thu,
+          state.data[line.key].fri,
+          state.data[line.key].sat,
+          state.data[line.key].sun,
+          state.data[line.key].total
+        ];
+        rows.push(r);
+      }
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Week");
+      const filename = (state.meta.weekOf || "beacon_week") + "_budget.xlsx";
+      XLSX.writeFile(wb, filename);
+    });
+
+    load(); recalc();
+  </script>
+</body>
+</html>
