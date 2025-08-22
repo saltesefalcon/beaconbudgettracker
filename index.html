@@ -25,7 +25,7 @@
     button.warn { background: var(--warn); border-color: #b91c1c; color:white; }
     button.ghost { background: transparent; border-color:#374151; }
     table { width:100%; border-collapse: collapse; font-size: .95rem; table-layout: fixed; }
-    th, td { border-bottom:1px solid #1f2937; padding:8px; text-align:right; }
+    th, td { border-bottom:1px solid #1f2937; padding:8px; text-align:right; vertical-align: top; }
     th:first-child, td:first-child { text-align:left; position: sticky; left: 0; background: var(--panel); }
     thead th { position: sticky; top: 0; z-index: 2; background: #0b1220; }
     tbody tr:hover td { background: #0b1220; }
@@ -43,21 +43,19 @@
     .howto { display:none; }
     .howto.open { display:block; }
 
-    .modal { position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.5); }
-    .modal.open { display:flex; }
-    .modal .card { background:var(--panel); border:1px solid #1f2937; padding:16px; border-radius:14px; width:min(720px, 92vw); }
-    .row { display:grid; grid-template-columns: 1fr 180px; gap:10px; align-items:center; margin-bottom:8px; }
-    .row label { color:var(--muted); }
-    .row .pct { display:flex; align-items:center; gap:6px; }
-
-    /* Purchase editor */
-    .items-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
-    .items-list { display:grid; grid-template-columns: 1fr 140px 32px; gap:8px; }
-    .items-list > * { align-self:center; }
-    .items-footer { display:flex; justify-content:space-between; align-items:center; margin-top:12px; }
+    /* Inline purchase editor */
+    .purchase-wrap { display:flex; flex-direction:column; gap:6px; }
+    .purchase-collapsed {
+      background:#0b1220; border:1px dashed #374151; color:#9ca3af; border-radius:10px; padding:8px 10px; text-align:left; cursor:pointer;
+    }
+    .purchase-collapsed.hasValue { border-style: solid; color: var(--ink); }
+    .purchase-editor {
+      background:#0b1220; border:1px solid #374151; border-radius:10px; padding:8px; text-align:left;
+    }
+    .items-grid { display:grid; grid-template-columns: 1fr 160px 32px; gap:8px; align-items:center; }
+    .items-grid > * { align-self:center; }
+    .items-actions { display:flex; justify-content:space-between; align-items:center; margin-top:8px; }
     .mini { font-size:.9rem; padding:6px 10px; }
-    .readonly-input { cursor:pointer; background:#0b1220; }
-    .open-editor { margin-top:6px; font-size:.8rem; padding:6px 8px; }
   </style>
 
   <!-- SheetJS for Excel export -->
@@ -155,31 +153,6 @@
     </div>
   </div>
 
-  <!-- PURCHASE ITEMS MODAL -->
-  <div class="modal" id="itemsModal" role="dialog" aria-modal="true" aria-label="Purchase Items Editor">
-    <div class="card">
-      <div class="items-head">
-        <h3 style="margin:0" id="itemsTitle">Edit Items</h3>
-        <button id="closeItems" class="mini">Close</button>
-      </div>
-
-      <div class="note" id="itemsHelp" style="margin-bottom:8px">Enter one or more purchase lines for this cell. Totals will roll up into the table.</div>
-      <div class="items-list" id="itemsList" style="margin-top:6px"></div>
-
-      <div class="items-footer">
-        <div>
-          <button id="addItem" class="mini">Add Line</button>
-        </div>
-        <div class="totals">Cell Total: $<span id="itemsTotal">0.00</span></div>
-      </div>
-
-      <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:14px">
-        <button id="itemsCancel">Cancel</button>
-        <button class="success" id="itemsSave">Save & Close</button>
-      </div>
-    </div>
-  </div>
-
   <script>
     const DAYS = ["mon","tue","wed","thu","fri","sat","sun"];
 
@@ -197,7 +170,7 @@
       { key: "proj_sales",  label: "Projected Food Sales", type: "days" },
       { key: "actual_sales",label: "Actual Sales",         type: "days" },
 
-      // Sales O/U now shows per day (actual - projected)
+      // Sales O/U shows per day (actual - projected)
       { key: "sales_delta", label: "over/under",           type: "calcDaysDiff", a: "actual_sales", b: "proj_sales" },
 
       { key: "meat_budget",       label: "Meat Budget",        type: "autoDays", pctKey:"meat" },
@@ -236,7 +209,8 @@
       data: blankWeek(),
       // details store per-cell line items: details[lineKey][day] = [{supplier, amount}]
       details: {},
-      settings: { base: "projected", alloc:"proportional", pct: { meat:25, sea:15, bread:10, produce:20, pantry:15, dairy:15 } }
+      settings: { base: "projected", alloc:"proportional", pct: { meat:25, sea:15, bread:10, produce:20, pantry:15, dairy:15 } },
+      ui: { openEditor: null } // {lineKey, dayKey} when an inline editor is open
     };
 
     const tbody = document.getElementById("tbody");
@@ -311,107 +285,140 @@
       updateSummary();
     }
 
-    // debounced recalc
-    let recalcTimer = null;
-    function scheduleRecalc(){
-      clearTimeout(recalcTimer);
-      recalcTimer = setTimeout(recalc, 200);
-    }
-
-    // ---- Purchase items editor ----
-    const itemsModal = document.getElementById("itemsModal");
-    const itemsTitle = document.getElementById("itemsTitle");
-    const itemsList = document.getElementById("itemsList");
-    const itemsTotal = document.getElementById("itemsTotal");
-    let currentEdit = null; // {lineKey, dayKey}
-
+    // --------- Inline purchase editor helpers ----------
     function getItems(lineKey, dayKey){
       state.details[lineKey] = state.details[lineKey] || {};
       state.details[lineKey][dayKey] = state.details[lineKey][dayKey] || [];
       return state.details[lineKey][dayKey];
     }
-
-    function openItemsEditor(lineKey, dayKey){
-      currentEdit = { lineKey, dayKey };
-      itemsTitle.textContent = `Edit ${labelByKey[lineKey]} — ${dayKey[0].toUpperCase()+dayKey.slice(1)}`;
-      renderItemsList();
-      itemsModal.classList.add("open");
+    function openEditor(lineKey, dayKey){
+      state.ui.openEditor = { lineKey, dayKey };
+      render();
     }
-
-    function renderItemsList(){
-      const { lineKey, dayKey } = currentEdit;
-      const items = getItems(lineKey, dayKey);
-      const supplierOptions = (SUPPLIERS[lineKey]||["Other"]).map(s=>`<option value="${s}">${s}</option>`).join("");
-      itemsList.innerHTML = "";
-      if (items.length === 0) items.push({supplier: SUPPLIERS[lineKey]?.[0] || "Other", amount: ""});
-
-      items.forEach((it, idx)=>{
-        const wrap = document.createElement("div");
-        wrap.style.display="contents";
-        const sel = document.createElement("select");
-        sel.innerHTML = supplierOptions;
-        sel.value = it.supplier || SUPPLIERS[lineKey]?.[0] || "Other";
-        sel.addEventListener("input",()=>{ it.supplier = sel.value; persist(); });
-
-        const amt = document.createElement("input");
-        amt.type="number"; amt.step="0.01"; amt.inputMode="decimal"; amt.placeholder="0.00";
-        amt.value = it.amount ?? "";
-        amt.addEventListener("input",()=>{ it.amount = amt.value; calcItemsTotal(); persist(); });
-
-        const del = document.createElement("button");
-        del.textContent="×";
-        del.title="Remove";
-        del.addEventListener("click",()=>{
-          items.splice(idx,1);
-          renderItemsList();
-          calcItemsTotal();
-          persist();
-        });
-
-        itemsList.appendChild(sel);
-        itemsList.appendChild(amt);
-        itemsList.appendChild(del);
-      });
-
-      calcItemsTotal();
+    function closeEditor(){
+      state.ui.openEditor = null;
+      render();
     }
-
-    function calcItemsTotal(){
-      const { lineKey, dayKey } = currentEdit;
+    function saveEditor(){
+      const { lineKey, dayKey } = state.ui.openEditor || {};
+      if (!lineKey) return;
       const items = getItems(lineKey, dayKey);
       const total = items.reduce((a, it)=> a + (parseFloat(it.amount)||0), 0);
-      itemsTotal.textContent = money(total);
-      return total;
-    }
-
-    document.getElementById("addItem").addEventListener("click", ()=>{
-      const { lineKey, dayKey } = currentEdit;
-      getItems(lineKey, dayKey).push({supplier: SUPPLIERS[lineKey]?.[0] || "Other", amount:""});
-      renderItemsList(); persist();
-    });
-
-    document.getElementById("itemsCancel").addEventListener("click", ()=> { itemsModal.classList.remove("open"); currentEdit=null; });
-    document.getElementById("closeItems").addEventListener("click", ()=> { itemsModal.classList.remove("open"); currentEdit=null; });
-
-    document.getElementById("itemsSave").addEventListener("click", ()=>{
-      if (!currentEdit) return;
-      const total = calcItemsTotal();
-      // Roll up to main cell
-      state.data[currentEdit.lineKey][currentEdit.dayKey] = money(total);
+      state.data[lineKey][dayKey] = money(total);
       persist();
-      itemsModal.classList.remove("open");
-      currentEdit=null;
+      state.ui.openEditor = null;
       recalc();
-    });
+    }
 
     // ---- Table rendering ----
     const labelByKey = Object.fromEntries(LINES.map(l => [l.key, l.label]));
 
-    function buildCell(line, dayKey){
-      const td=document.createElement("td");
+    function buildCollapsedPurchCell(lineKey, dayKey){
+      const td = document.createElement("td");
+      const hasVal = state.data[lineKey][dayKey] !== "" && state.data[lineKey][dayKey] != null;
+      const div = document.createElement("div");
+      div.className = "purchase-collapsed" + (hasVal ? " hasValue" : "");
+      div.textContent = hasVal ? state.data[lineKey][dayKey] : "Click to add purchases";
+      div.addEventListener("click", () => {
+        // Ensure at least one row exists when opening
+        const arr = getItems(lineKey, dayKey);
+        if (arr.length === 0) arr.push({ supplier: SUPPLIERS[lineKey]?.[0] || "Other", amount: "" });
+        openEditor(lineKey, dayKey);
+      });
+      td.appendChild(div);
+      return td;
+    }
 
-      // Editable plain daily inputs
+    function buildEditorPurchCell(lineKey, dayKey){
+      const td = document.createElement("td");
+      const editor = document.createElement("div");
+      editor.className = "purchase-editor";
+
+      const items = getItems(lineKey, dayKey);
+      const supplierOptions = (SUPPLIERS[lineKey]||["Other"]).map(s=>`<option value="${s}">${s}</option>`).join("");
+
+      const list = document.createElement("div");
+      list.className = "items-grid";
+
+      function renderRows(){
+        list.innerHTML = "";
+        items.forEach((it, idx)=>{
+          const amt = document.createElement("input");
+          amt.type="number"; amt.step="0.01"; amt.inputMode="decimal"; amt.placeholder="0.00";
+          amt.value = it.amount ?? "";
+          amt.addEventListener("input",()=>{ it.amount = amt.value; calcAndShowTotal(); persist(); });
+
+          const sel = document.createElement("select");
+          sel.innerHTML = supplierOptions;
+          sel.value = it.supplier || SUPPLIERS[lineKey]?.[0] || "Other";
+          sel.addEventListener("input",()=>{ it.supplier = sel.value; persist(); });
+
+          const del = document.createElement("button");
+          del.textContent = "×";
+          del.title = "Remove line";
+          del.addEventListener("click", ()=>{
+            items.splice(idx,1);
+            if (items.length === 0) items.push({ supplier: SUPPLIERS[lineKey]?.[0] || "Other", amount:"" });
+            renderRows();
+            calcAndShowTotal();
+            persist();
+          });
+
+          list.appendChild(amt);
+          list.appendChild(sel);
+          list.appendChild(del);
+        });
+      }
+
+      const actions = document.createElement("div");
+      actions.className = "items-actions";
+      const left = document.createElement("div");
+      const addBtn = document.createElement("button");
+      addBtn.className = "mini";
+      addBtn.textContent = "Add Line";
+      addBtn.addEventListener("click", ()=>{
+        items.push({ supplier: SUPPLIERS[lineKey]?.[0] || "Other", amount:"" });
+        renderRows(); calcAndShowTotal(); persist();
+      });
+      left.appendChild(addBtn);
+
+      const right = document.createElement("div");
+      const totalSpan = document.createElement("span");
+      totalSpan.innerHTML = 'Total: $<b id="cellTotal">0.00</b>';
+      right.appendChild(totalSpan);
+
+      actions.appendChild(left);
+      actions.appendChild(right);
+
+      const buttons = document.createElement("div");
+      buttons.style.display = "flex";
+      buttons.style.justifyContent = "flex-end";
+      buttons.style.gap = "8px";
+      buttons.style.marginTop = "8px";
+      const cancel = document.createElement("button"); cancel.textContent = "Cancel";
+      cancel.addEventListener("click", closeEditor);
+      const save = document.createElement("button"); save.className = "success"; save.textContent = "Save";
+      save.addEventListener("click", saveEditor);
+      buttons.appendChild(cancel); buttons.appendChild(save);
+
+      function calcAndShowTotal(){
+        const total = items.reduce((a, it)=> a + (parseFloat(it.amount)||0), 0);
+        editor.querySelector("#cellTotal").textContent = (Math.round(total*100)/100).toFixed(2);
+      }
+
+      renderRows();
+      editor.appendChild(list);
+      editor.appendChild(actions);
+      editor.appendChild(buttons);
+      td.appendChild(editor);
+      setTimeout(()=>calcAndShowTotal(),0);
+      return td;
+    }
+
+    function buildCell(line, dayKey){
+      // Regular editable numeric days
       if (line.type==="days"){
+        const td=document.createElement("td");
         const input=document.createElement("input");
         input.type="number"; input.step="0.01"; input.inputMode="decimal";
         input.value=state.data[line.key][dayKey];
@@ -424,29 +431,14 @@
         return td;
       }
 
-      // PURCHASE editor cells
+      // Purchases with inline editor
       if (line.type==="daysPurch"){
-        const wrap = document.createElement("div");
-        const input=document.createElement("input");
-        input.type="number"; input.step="0.01"; input.inputMode="decimal";
-        input.className = "readonly-input";
-        input.readOnly = true;
-        input.value = state.data[line.key][dayKey];
-        input.placeholder = "Click to add items";
-        input.addEventListener("click", ()=> openItemsEditor(line.key, dayKey));
-        wrap.appendChild(input);
-
-        const btn = document.createElement("button");
-        btn.textContent = "Open Items";
-        btn.className = "open-editor";
-        btn.addEventListener("click", ()=> openItemsEditor(line.key, dayKey));
-        wrap.appendChild(btn);
-
-        td.appendChild(wrap);
-        return td;
+        const open = state.ui.openEditor && state.ui.openEditor.lineKey===line.key && state.ui.openEditor.dayKey===dayKey;
+        return open ? buildEditorPurchCell(line.key, dayKey) : buildCollapsedPurchCell(line.key, dayKey);
       }
 
-      // Non-editable computed cells
+      // Computed/non-editable
+      const td=document.createElement("td");
       const val = state.data[line.key][dayKey];
       td.className = "totals";
       td.textContent = val !== "" ? (typeof val === "number" ? money(val) : val) : "";
@@ -454,10 +446,6 @@
     }
 
     function render(){
-      const active = document.activeElement && document.activeElement.tagName === "INPUT" ? document.activeElement : null;
-      const caretPos = active ? active.selectionStart : null;
-      const activeId = active ? active.dataset?.bindid : null;
-
       tbody.innerHTML="";
       for (const line of LINES){
         const tr=document.createElement("tr");
@@ -468,9 +456,7 @@
         }
 
         for (const d of DAYS){
-          const cell = buildCell(line, d);
-          if (cell.firstChild && cell.firstChild.tagName==="INPUT") cell.firstChild.dataset.bindid = line.key+"."+d;
-          tr.appendChild(cell);
+          tr.appendChild(buildCell(line, d));
         }
 
         const totalTd=document.createElement("td");
@@ -485,15 +471,6 @@
         tr.appendChild(totalTd);
 
         tbody.appendChild(tr);
-      }
-
-      // restore focus/caret if possible
-      if (activeId){
-        const next = tbody.querySelector(`input[data-bindid="${activeId}"]`);
-        if (next){
-          next.focus();
-          try { next.setSelectionRange(caretPos, caretPos); } catch {}
-        }
       }
     }
 
@@ -511,6 +488,13 @@
       const chipNet=document.getElementById("chipNet");
       document.getElementById("chipNetVal").textContent="$"+money(net);
       chipNet.classList.remove("over","under"); if (net<0) chipNet.classList.add("over"); if (net>0) chipNet.classList.add("under");
+    }
+
+    // Debounced recalc
+    let recalcTimer = null;
+    function scheduleRecalc(){
+      clearTimeout(recalcTimer);
+      recalcTimer = setTimeout(recalc, 180);
     }
 
     // Settings modal
@@ -549,7 +533,7 @@
     // Persistence
     function persist(){ localStorage.setItem("beacon_budget_draft", JSON.stringify(state)); }
     function load(){ const raw=localStorage.getItem("beacon_budget_draft"); if(!raw) return; try{ const obj=JSON.parse(raw); if(obj) state=obj; }catch{} }
-    document.getElementById("newWeek").addEventListener("click", ()=>{ state.data=blankWeek(); state.details={}; persist(); recalc(); });
+    document.getElementById("newWeek").addEventListener("click", ()=>{ state.data=blankWeek(); state.details={}; state.ui.openEditor=null; persist(); recalc(); });
     document.getElementById("save").addEventListener("click", ()=>{
       const key=prompt("Name this week:", document.getElementById("weekOf").value); if(!key) return;
       localStorage.setItem("beacon_budget_"+key, JSON.stringify(state)); alert("Saved!");
