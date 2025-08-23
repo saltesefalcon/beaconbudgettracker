@@ -49,11 +49,7 @@
     .howto.open { display:block; }
 
     /* Modal overlay */
-    .modal {
-      position: fixed; inset: 0; display: none;
-      align-items: center; justify-content: center;
-      background: rgba(0,0,0,.55); z-index: 10000;
-    }
+    .modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.55); z-index: 10000; }
     .modal.open { display: flex; }
 
     /* Floating draggable card */
@@ -66,15 +62,12 @@
     .drag-handle { cursor: move; user-select: none; }
 
     /* Purchases editor */
-    .purchase-collapsed {
-      background:#0b1220; border:1px dashed #374151; color:#9ca3af; border-radius:10px; padding:8px 10px; text-align:left; cursor:pointer;
-    }
+    .purchase-collapsed { background:#0b1220; border:1px dashed #374151; color:#9ca3af; border-radius:10px; padding:8px 10px; text-align:left; cursor:pointer; }
     .purchase-collapsed.hasValue { border-style: solid; color: var(--ink); }
     .popover {
       position:fixed; z-index:9999; background:var(--panel); border:1px solid #1f2937; border-radius:14px;
       box-shadow:0 20px 50px rgba(0,0,0,.5); width:min(760px,95vw); min-width:480px; padding:14px;
     }
-    /* Mobile bottom-sheet style for the purchases editor */
     @media (max-width: 720px){
       .popover.pop-mobile {
         left:0 !important; right:0 !important; width:100vw !important; min-width:0 !important;
@@ -94,9 +87,8 @@
       .popover { min-width: min(420px, 95vw); }
     }
 
-    /* -------- Mobile day slider UI -------- */
-    .mobile-controls { display:none; margin:10px 0 6px; gap:8px; align-items:center; flex-wrap:wrap; }
-    .mobile-controls .group { display:flex; gap:6px; align-items:center; }
+    /* -------- Mobile nav controls -------- */
+    .mobile-controls { display:none; margin:10px 0 6px; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-start; }
     .mobile-controls .badge { background:#0b1220; border:1px solid #1f2937; padding:6px 10px; border-radius:10px; }
     .mobile-controls button { padding:8px 10px; }
     .mobile-hide { display: none !important; }
@@ -145,15 +137,6 @@
         <div id="weekRangeDisplay" class="week-range"></div>
       </div>
 
-      <!-- Mobile-only controls (no "days visible", no start slider) -->
-      <div id="mobileControls" class="mobile-controls" aria-label="Mobile day view controls">
-        <div class="group">
-          <button id="prevDays" title="Previous days">◀</button>
-          <button id="nextDays" title="Next days">▶</button>
-        </div>
-        <div class="badge" id="mobileWindowLabel">Mon–Tue</div>
-      </div>
-
       <div class="summary-banner" aria-live="polite">
         <div class="chip"><b>Projected:</b> <span id="chipProj">$0.00</span></div>
         <div class="chip"><b>Actual:</b> <span id="chipAct">$0.00</span></div>
@@ -172,7 +155,14 @@
         </ol>
       </div>
 
-      <table id="budgetTable" style="margin-top:12px">
+      <!-- Moved here: just above the days-of-week table -->
+      <div id="mobileControls" class="mobile-controls" aria-label="Mobile day view controls">
+        <button id="prevDays" title="Previous days">◀</button>
+        <div class="badge" id="mobileWindowLabel">Mon–Tue</div>
+        <button id="nextDays" title="Next days">▶</button>
+      </div>
+
+      <table id="budgetTable" style="margin-top:6px">
         <thead>
           <tr>
             <th>Line</th>
@@ -287,14 +277,14 @@
       data: blankWeek(),
       details:{},
       settings:{ base:"projected", alloc:"proportional", pct:{ meat:25, sea:15, bread:10, produce:20, pantry:15, dairy:15 } },
-      ui:{ mobileStart:0 } // mobileDays is always 2 now
+      ui:{ mobileStart:0 } // mobileDays fixed to 2
     };
 
     const tbody = document.getElementById("tbody");
     const weekInput = document.getElementById("weekOf");
     const weekRangeEl = document.getElementById("weekRangeDisplay");
 
-    // Mobile controls refs
+    // Mobile controls
     const mobileControls = document.getElementById("mobileControls");
     const prevBtn = document.getElementById("prevDays");
     const nextBtn = document.getElementById("nextDays");
@@ -307,28 +297,18 @@
     function money(n){ return (Math.round(n*100)/100).toFixed(2); }
     function sumDays(row){ return DAYS.reduce((a,d)=>a+num(row[d]),0); }
 
-    function parseLocalISO(s){
-      if(!s) return null;
-      const [y,m,d] = s.split("-").map(Number);
-      const dt = new Date(y, (m||1)-1, d||1);
-      dt.setHours(0,0,0,0);
-      return dt;
-    }
+    function parseLocalISO(s){ if(!s) return null; const [y,m,d] = s.split("-").map(Number); const dt = new Date(y,(m||1)-1,d||1); dt.setHours(0,0,0,0); return dt; }
     function toISO(d){ const y=d.getFullYear(), m=(d.getMonth()+1+"").padStart(2,"0"), dd=(d.getDate()+"").padStart(2,"0"); return `${y}-${m}-${dd}`; }
-    function startOfWeekMonday(d){
-      const day = d.getDay(); // 0 Sun .. 6 Sat
-      const diff = (day + 6) % 7;
-      const out = new Date(d); out.setDate(d.getDate() - diff); out.setHours(0,0,0,0); return out;
-    }
-    function addDays(d, n){ const out=new Date(d); out.setDate(d.getDate()+n); return out; }
+    function startOfWeekMonday(d){ const day=d.getDay(); const diff=(day+6)%7; const out=new Date(d); out.setDate(d.getDate()-diff); out.setHours(0,0,0,0); return out; }
+    function addDays(d,n){ const out=new Date(d); out.setDate(d.getDate()+n); return out; }
     function monthShort(d){ return d.toLocaleString(undefined,{month:"short"}); }
     function ordinal(n){ const s=["th","st","nd","rd"], v=n%100; return n+(s[(v-20)%10]||s[v]||s[0]); }
     function isMobile(){ return window.innerWidth <= 720; }
     function formatWeekRange(monday){
-      const sunday = addDays(monday, 6);
-      const sameMonth = monday.getMonth() === sunday.getMonth();
-      const left = `${monthShort(monday)} ${monday.getDate()}`;
-      const right = `${sameMonth ? sunday.getDate() : monthShort(sunday) + " " + sunday.getDate()}, ${sunday.getFullYear()}`;
+      const sunday = addDays(monday,6);
+      const same= monday.getMonth()===sunday.getMonth();
+      const left=`${monthShort(monday)} ${monday.getDate()}`;
+      const right = `${same ? sunday.getDate() : monthShort(sunday)+" "+sunday.getDate()}, ${sunday.getFullYear()}`;
       return `${left}–${right}`;
     }
     function clamp(n,min,max){ return Math.max(min, Math.min(max, n)); }
@@ -437,9 +417,7 @@
     function outsideClose(e){ if (!popover) return; if (!popover.contains(e.target)) closePopover(); }
     function onReposition(){ if (!popover || !currentEdit) return; const anchor = document.querySelector(`[data-anchor='${currentEdit.lineKey}.${currentEdit.dayKey}']`); if (anchor) positionPopover(anchor); }
     function positionPopover(anchorEl){
-      if (isMobile()){
-        popover.style.top = ""; popover.style.left = ""; return;
-      }
+      if (isMobile()){ popover.style.top = ""; popover.style.left = ""; return; }
       const r = anchorEl.getBoundingClientRect();
       const margin = 8;
       const top = Math.min(window.innerHeight - (popover.offsetHeight||320) - margin, Math.max(margin, r.bottom + 6));
@@ -733,13 +711,12 @@
       }catch{}
     }
 
-    // ---------- Mobile view logic (fixed 2-day window) ----------
+    // ---------- Mobile view: fixed 2-day window ----------
     function updateMobileWindowLabel(){
       if (!isMobile()) return;
-      const span = MOBILE_SPAN;
+      const span = 2;
       let start = Number(state.ui.mobileStart) || 0;
       start = clamp(start, 0, 7 - span);
-
       let left = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"][start];
       let right = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"][start + span - 1];
       if (state.meta.weekOf){
@@ -751,30 +728,23 @@
       }
       mobileWindowLabel.textContent = `${left}–${right}`;
     }
-
     function setMobileHeaderShortNames(){
       if (!isMobile()) return;
       const labels = [];
       if (state.meta.weekOf){
         const monday = parseLocalISO(state.meta.weekOf);
-        for (let i=0;i<7;i++){
-          labels.push(`${DAY_ABBR[i]} ${ordinal(addDays(monday,i).getDate())}`);
-        }
-      } else {
-        labels.push(...DAY_ABBR);
-      }
-      const ids = ["mon","tue","wed","thu","fri","sat","sun"];
-      ids.forEach((k,i)=>{ const el=document.getElementById(`th_${k}`); if (el) el.textContent = labels[i]; });
+        for (let i=0;i<7;i++) labels.push(`${DAY_ABBR[i]} ${ordinal(addDays(monday,i).getDate())}`);
+      } else labels.push(...DAY_ABBR);
+      ["mon","tue","wed","thu","fri","sat","sun"].forEach((k,i)=>{
+        const el=document.getElementById(`th_${k}`); if (el) el.textContent = labels[i];
+      });
     }
-
     function applyMobileColumns(){
       const mobile = isMobile();
       mobileControls.style.display = mobile ? "flex" : "none";
 
       const colKeys = ["mon","tue","wed","thu","fri","sat","sun"];
-
       if (!mobile){
-        // show all and restore full labels
         colKeys.forEach(k=>{
           document.getElementById(`th_${k}`).classList.remove("mobile-hide");
           document.querySelectorAll(`.col-${k}`).forEach(el=>el.classList.remove("mobile-hide"));
@@ -783,7 +753,7 @@
         return;
       }
 
-      const span = MOBILE_SPAN;
+      const span = 2;
       let start = Number(state.ui.mobileStart) || 0;
       start = clamp(start, 0, 7 - span);
       state.ui.mobileStart = start;
@@ -794,60 +764,45 @@
         document.querySelectorAll(`.col-${k}`).forEach(el=>el.classList.add("mobile-hide"));
       });
 
-      // Show the window
+      // Show window
       for (let i=0;i<span;i++){
         const key = colKeys[start + i];
         document.getElementById(`th_${key}`).classList.remove("mobile-hide");
         document.querySelectorAll(`.col-${key}`).forEach(el=>el.classList.remove("mobile-hide"));
       }
 
-      // Short header labels for mobile & ensure CSS var is 2
       setMobileHeaderShortNames();
-      document.documentElement.style.setProperty('--mobile-days', String(MOBILE_SPAN));
-
+      document.documentElement.style.setProperty('--mobile-days', '2');
       updateMobileWindowLabel();
     }
 
-    // Button navigation (backup to swipe)
+    // Buttons + swipe
     prevBtn.addEventListener("click", ()=>{
-      state.ui.mobileStart = clamp((state.ui.mobileStart||0) - 1, 0, 7 - MOBILE_SPAN);
+      state.ui.mobileStart = clamp((state.ui.mobileStart||0) - 1, 0, 5);
       applyMobileColumns(); persist();
     });
     nextBtn.addEventListener("click", ()=>{
-      state.ui.mobileStart = clamp((state.ui.mobileStart||0) + 1, 0, 7 - MOBILE_SPAN);
+      state.ui.mobileStart = clamp((state.ui.mobileStart||0) + 1, 0, 5);
       applyMobileColumns(); persist();
     });
-
-    // Touch swipe navigation on the table
     (function enableSwipe(){
       let startX=null, startY=null;
-      const MIN_SWIPE = 40; // px
+      const MIN_SWIPE = 40;
       budgetTable.addEventListener("touchstart", (e)=>{
         if (!isMobile()) return;
-        const t = e.touches[0];
-        startX = t.clientX; startY = t.clientY;
+        const t=e.touches[0]; startX=t.clientX; startY=t.clientY;
       }, {passive:true});
       budgetTable.addEventListener("touchend", (e)=>{
         if (!isMobile() || startX===null) return;
-        const t = e.changedTouches[0];
-        const dx = t.clientX - startX;
-        const dy = t.clientY - startY;
-        startX = startY = null;
-
-        // Only react to mostly-horizontal swipes
-        if (Math.abs(dx) < MIN_SWIPE || Math.abs(dx) < Math.abs(dy)) return;
-
-        if (dx < 0){
-          // swipe left -> next
-          state.ui.mobileStart = clamp((state.ui.mobileStart||0) + 1, 0, 7 - MOBILE_SPAN);
-        } else {
-          // swipe right -> prev
-          state.ui.mobileStart = clamp((state.ui.mobileStart||0) - 1, 0, 7 - MOBILE_SPAN);
-        }
+        const t=e.changedTouches[0];
+        const dx=t.clientX-startX, dy=t.clientY-startY;
+        startX=startY=null;
+        if (Math.abs(dx)<MIN_SWIPE || Math.abs(dx)<Math.abs(dy)) return;
+        if (dx<0) state.ui.mobileStart = clamp((state.ui.mobileStart||0)+1, 0, 5);
+        else      state.ui.mobileStart = clamp((state.ui.mobileStart||0)-1, 0, 5);
         applyMobileColumns(); persist();
       }, {passive:true});
     })();
-
     window.addEventListener("resize", applyMobileColumns);
 
     // ---------- New Week / Save / Load / Import / Export ----------
@@ -867,8 +822,7 @@
       if (!state.details) state.details={};
       if (!state.ui) state.ui={ mobileStart:0 };
       if (state.meta?.weekOf) weekInput.value = state.meta.weekOf;
-      updateWeekUI();
-      recalc(); persist();
+      updateWeekUI(); recalc(); persist();
     });
     document.getElementById("exportJSON").addEventListener("click", ()=>{
       const blob=new Blob([JSON.stringify(state,null,2)], {type:"application/json"});
@@ -883,7 +837,7 @@
       r.readAsText(f);
     });
 
-    // Week picker events
+    // Week picker
     weekInput.addEventListener("change", e => onWeekChange(e.target.value));
     weekInput.addEventListener("input",  e => onWeekChange(e.target.value));
 
@@ -936,3 +890,4 @@
   </script>
 </body>
 </html>
+
