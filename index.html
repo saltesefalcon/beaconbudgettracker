@@ -99,7 +99,6 @@
     .mobile-controls .group { display:flex; gap:6px; align-items:center; }
     .mobile-controls .badge { background:#0b1220; border:1px solid #1f2937; padding:6px 10px; border-radius:10px; }
     .mobile-controls button { padding:8px 10px; }
-    .mobile-controls input[type="range"] { width:160px; }
     .mobile-hide { display: none !important; }
 
     /* --------- Mobile responsive column sizing --------- */
@@ -107,7 +106,7 @@
       :root{
         --firstW: 150px;   /* Line column */
         --totalsW: 100px;  /* Totals column */
-        --mobile-days: 3;  /* JS updates this */
+        --mobile-days: 2;  /* fixed to 2 on mobile */
       }
       table{ table-layout: auto; }
       th:first-child, td:first-child { width: var(--firstW); max-width: var(--firstW); }
@@ -146,24 +145,13 @@
         <div id="weekRangeDisplay" class="week-range"></div>
       </div>
 
-      <!-- Mobile-only day slider controls -->
+      <!-- Mobile-only controls (no "days visible", no start slider) -->
       <div id="mobileControls" class="mobile-controls" aria-label="Mobile day view controls">
         <div class="group">
           <button id="prevDays" title="Previous days">◀</button>
           <button id="nextDays" title="Next days">▶</button>
         </div>
-        <div class="group">
-          <label for="daysVisible">Days visible</label>
-          <select id="daysVisible">
-            <option value="2">2</option>
-            <option value="3" selected>3</option>
-          </select>
-        </div>
-        <div class="group">
-          <label for="dayStart">Start</label>
-          <input id="dayStart" type="range" min="0" max="4" step="1" value="0" />
-        </div>
-        <div class="badge" id="mobileWindowLabel">Mon–Wed</div>
+        <div class="badge" id="mobileWindowLabel">Mon–Tue</div>
       </div>
 
       <div class="summary-banner" aria-live="polite">
@@ -246,6 +234,7 @@
     const DAYS = ["mon","tue","wed","thu","fri","sat","sun"];
     const DAY_NAME = {mon:"Monday",tue:"Tuesday",wed:"Wednesday",thu:"Thursday",fri:"Friday",sat:"Saturday",sun:"Sunday"};
     const DAY_ABBR = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+    const MOBILE_SPAN = 2; // fixed two-day window on mobile
 
     const SUPPLIERS = {
       meat_purch:    ["Woodward Meats","The Chefs Warehouse","Jesse Tree","Other"],
@@ -298,7 +287,7 @@
       data: blankWeek(),
       details:{},
       settings:{ base:"projected", alloc:"proportional", pct:{ meat:25, sea:15, bread:10, produce:20, pantry:15, dairy:15 } },
-      ui:{ mobileStart:0, mobileDays:3 }
+      ui:{ mobileStart:0 } // mobileDays is always 2 now
     };
 
     const tbody = document.getElementById("tbody");
@@ -307,11 +296,10 @@
 
     // Mobile controls refs
     const mobileControls = document.getElementById("mobileControls");
-    const dayStart = document.getElementById("dayStart");
-    const daysVisible = document.getElementById("daysVisible");
     const prevBtn = document.getElementById("prevDays");
     const nextBtn = document.getElementById("nextDays");
     const mobileWindowLabel = document.getElementById("mobileWindowLabel");
+    const budgetTable = document.getElementById("budgetTable");
 
     // ---------- Utils ----------
     const labelByKey = Object.fromEntries(LINES.map(l=>[l.key,l.label]));
@@ -343,6 +331,7 @@
       const right = `${sameMonth ? sunday.getDate() : monthShort(sunday) + " " + sunday.getDate()}, ${sunday.getFullYear()}`;
       return `${left}–${right}`;
     }
+    function clamp(n,min,max){ return Math.max(min, Math.min(max, n)); }
 
     function updateWeekUI(){
       if (!state.meta.weekOf){
@@ -701,7 +690,7 @@
 
     (function enableDrag(){
       let dragging=false, sx=0, sy=0, startTop=0, startLeft=0;
-      function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
+      function clampPos(v,min,max){ return Math.max(min, Math.min(max, v)); }
       handle.addEventListener("mousedown", (e)=>{
         dragging=true; const rect = card.getBoundingClientRect();
         sx=e.clientX; sy=e.clientY; card.style.transform="none"; startTop=rect.top; startLeft=rect.left; e.preventDefault();
@@ -712,8 +701,8 @@
         const newTop = startTop + dy, newLeft= startLeft + dx;
         const maxTop  = window.innerHeight - card.offsetHeight - 8;
         const maxLeft = window.innerWidth  - card.offsetWidth  - 8;
-        card.style.top  = clamp(newTop, 8, Math.max(8, maxTop)) + "px";
-        card.style.left = clamp(newLeft, 8, Math.max(8, maxLeft)) + "px";
+        card.style.top  = clampPos(newTop, 8, Math.max(8, maxTop)) + "px";
+        card.style.left = clampPos(newLeft, 8, Math.max(8, maxLeft)) + "px";
       });
       window.addEventListener("mouseup", ()=> dragging=false);
       window.addEventListener("resize", ()=> { if (modal.classList.contains("open")) centerCard(); });
@@ -737,19 +726,17 @@
           state.data=state.data||blankWeek();
           for (const l of LINES){ if (l.type!=="spacer" && !state.data[l.key]) state.data[l.key]=blankRow(); }
           state.details = state.details||{};
-          if (!state.ui) state.ui={ mobileStart:0, mobileDays:3 };
+          if (!state.ui) state.ui={ mobileStart:0 };
           if (state.meta.weekOf) { weekInput.value = state.meta.weekOf; }
           updateWeekUI();
         }
       }catch{}
     }
 
-    // ---------- Mobile day slider logic ----------
-    function clamp(n,min,max){ return Math.max(min, Math.min(max, n)); }
-
+    // ---------- Mobile view logic (fixed 2-day window) ----------
     function updateMobileWindowLabel(){
       if (!isMobile()) return;
-      const span = Number(state.ui.mobileDays) || 3;
+      const span = MOBILE_SPAN;
       let start = Number(state.ui.mobileStart) || 0;
       start = clamp(start, 0, 7 - span);
 
@@ -796,7 +783,7 @@
         return;
       }
 
-      const span = Number(state.ui.mobileDays) || 3;
+      const span = MOBILE_SPAN;
       let start = Number(state.ui.mobileStart) || 0;
       start = clamp(start, 0, 7 - span);
       state.ui.mobileStart = start;
@@ -814,34 +801,53 @@
         document.querySelectorAll(`.col-${key}`).forEach(el=>el.classList.remove("mobile-hide"));
       }
 
-      // Short header labels for mobile & update CSS var for widths
+      // Short header labels for mobile & ensure CSS var is 2
       setMobileHeaderShortNames();
-      document.documentElement.style.setProperty('--mobile-days', String(span));
+      document.documentElement.style.setProperty('--mobile-days', String(MOBILE_SPAN));
 
-      // Update slider + label
-      dayStart.max = String(7 - span);
-      dayStart.value = String(start);
-      daysVisible.value = String(span);
       updateMobileWindowLabel();
     }
 
-    daysVisible.addEventListener("change", ()=>{
-      state.ui.mobileDays = parseInt(daysVisible.value,10) || 3;
-      state.ui.mobileStart = clamp(state.ui.mobileStart, 0, 7 - state.ui.mobileDays);
-      applyMobileColumns(); persist();
-    });
-    dayStart.addEventListener("input", ()=>{
-      state.ui.mobileStart = parseInt(dayStart.value,10) || 0;
-      applyMobileColumns(); persist();
-    });
+    // Button navigation (backup to swipe)
     prevBtn.addEventListener("click", ()=>{
-      state.ui.mobileStart = clamp(state.ui.mobileStart - 1, 0, 7 - state.ui.mobileDays);
+      state.ui.mobileStart = clamp((state.ui.mobileStart||0) - 1, 0, 7 - MOBILE_SPAN);
       applyMobileColumns(); persist();
     });
     nextBtn.addEventListener("click", ()=>{
-      state.ui.mobileStart = clamp(state.ui.mobileStart + 1, 0, 7 - state.ui.mobileDays);
+      state.ui.mobileStart = clamp((state.ui.mobileStart||0) + 1, 0, 7 - MOBILE_SPAN);
       applyMobileColumns(); persist();
     });
+
+    // Touch swipe navigation on the table
+    (function enableSwipe(){
+      let startX=null, startY=null;
+      const MIN_SWIPE = 40; // px
+      budgetTable.addEventListener("touchstart", (e)=>{
+        if (!isMobile()) return;
+        const t = e.touches[0];
+        startX = t.clientX; startY = t.clientY;
+      }, {passive:true});
+      budgetTable.addEventListener("touchend", (e)=>{
+        if (!isMobile() || startX===null) return;
+        const t = e.changedTouches[0];
+        const dx = t.clientX - startX;
+        const dy = t.clientY - startY;
+        startX = startY = null;
+
+        // Only react to mostly-horizontal swipes
+        if (Math.abs(dx) < MIN_SWIPE || Math.abs(dx) < Math.abs(dy)) return;
+
+        if (dx < 0){
+          // swipe left -> next
+          state.ui.mobileStart = clamp((state.ui.mobileStart||0) + 1, 0, 7 - MOBILE_SPAN);
+        } else {
+          // swipe right -> prev
+          state.ui.mobileStart = clamp((state.ui.mobileStart||0) - 1, 0, 7 - MOBILE_SPAN);
+        }
+        applyMobileColumns(); persist();
+      }, {passive:true});
+    })();
+
     window.addEventListener("resize", applyMobileColumns);
 
     // ---------- New Week / Save / Load / Import / Export ----------
@@ -859,7 +865,7 @@
       const raw=localStorage.getItem("beacon_budget_"+key); if(!raw){ alert("Not found."); return; }
       state=JSON.parse(raw);
       if (!state.details) state.details={};
-      if (!state.ui) state.ui={ mobileStart:0, mobileDays:3 };
+      if (!state.ui) state.ui={ mobileStart:0 };
       if (state.meta?.weekOf) weekInput.value = state.meta.weekOf;
       updateWeekUI();
       recalc(); persist();
@@ -872,7 +878,7 @@
       const f=e.target.files?.[0]; if(!f) return; const r=new FileReader();
       r.onload=(ev)=>{ try{
           const obj=JSON.parse(ev.target.result);
-          if(obj){ state=obj; if(!state.ui) state.ui={ mobileStart:0, mobileDays:3 }; if(state.meta?.weekOf) weekInput.value=state.meta.weekOf; updateWeekUI(); recalc(); persist(); }
+          if(obj){ state=obj; if(!state.ui) state.ui={ mobileStart:0 }; if(state.meta?.weekOf) weekInput.value=state.meta.weekOf; updateWeekUI(); recalc(); persist(); }
         } catch { alert("Invalid file"); } };
       r.readAsText(f);
     });
@@ -930,4 +936,3 @@
   </script>
 </body>
 </html>
-
