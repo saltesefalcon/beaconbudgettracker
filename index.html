@@ -102,6 +102,20 @@
     .mobile-controls input[type="range"] { width:160px; }
     .mobile-hide { display: none !important; }
 
+    /* --------- Mobile responsive column sizing --------- */
+    @media (max-width: 720px){
+      :root{
+        --firstW: 150px;   /* Line column */
+        --totalsW: 100px;  /* Totals column */
+        --mobile-days: 3;  /* JS updates this */
+      }
+      table{ table-layout: auto; }
+      th:first-child, td:first-child { width: var(--firstW); max-width: var(--firstW); }
+      thead th:last-child, tbody td:last-child { width: var(--totalsW); max-width: var(--totalsW); }
+      .mobile-day { width: calc((100% - var(--firstW) - var(--totalsW)) / var(--mobile-days)); }
+      .mobile-day input, .mobile-day .purchase-collapsed { width: 100%; }
+    }
+
     @media (max-width: 720px){
       .mobile-controls { display:flex; }
     }
@@ -174,13 +188,13 @@
         <thead>
           <tr>
             <th>Line</th>
-            <th id="th_mon" class="col-mon">Monday</th>
-            <th id="th_tue" class="col-tue">Tuesday</th>
-            <th id="th_wed" class="col-wed">Wednesday</th>
-            <th id="th_thu" class="col-thu">Thursday</th>
-            <th id="th_fri" class="col-fri">Friday</th>
-            <th id="th_sat" class="col-sat">Saturday</th>
-            <th id="th_sun" class="col-sun">Sunday</th>
+            <th id="th_mon" class="col-mon mobile-day">Monday</th>
+            <th id="th_tue" class="col-tue mobile-day">Tuesday</th>
+            <th id="th_wed" class="col-wed mobile-day">Wednesday</th>
+            <th id="th_thu" class="col-thu mobile-day">Thursday</th>
+            <th id="th_fri" class="col-fri mobile-day">Friday</th>
+            <th id="th_sat" class="col-sat mobile-day">Saturday</th>
+            <th id="th_sun" class="col-sun mobile-day">Sunday</th>
             <th>Totals</th>
           </tr>
         </thead>
@@ -554,7 +568,7 @@
 
     function buildCollapsedPurchCell(lineKey, dayKey){
       const td=document.createElement("td");
-      td.classList.add(`col-${dayKey}`);
+      td.classList.add(`col-${dayKey}`,"mobile-day");
       const hasVal = state.data[lineKey][dayKey] !== "" && state.data[lineKey][dayKey] != null;
       const div=document.createElement("div");
       div.className="purchase-collapsed"+(hasVal?" hasValue":"");
@@ -568,7 +582,7 @@
     function buildCell(line, dayKey){
       if (line.type==="days"){
         const td=document.createElement("td");
-        td.classList.add(`col-${dayKey}`);
+        td.classList.add(`col-${dayKey}`,"mobile-day");
         const input=document.createElement("input");
         input.type="number"; input.step="0.01"; input.inputMode="decimal";
         input.value=state.data[line.key][dayKey];
@@ -584,7 +598,7 @@
         return buildCollapsedPurchCell(line.key, dayKey);
       }
       const td=document.createElement("td");
-      td.classList.add(`col-${dayKey}`);
+      td.classList.add(`col-${dayKey}`,"mobile-day");
       const val = state.data[line.key][dayKey];
       td.classList.add("totals");
       td.textContent = val!=="" ? (typeof val==="number" ? money(val) : val) : "";
@@ -739,7 +753,8 @@
       let start = Number(state.ui.mobileStart) || 0;
       start = clamp(start, 0, 7 - span);
 
-      let left = DAY_ABBR[start], right = DAY_ABBR[start + span - 1];
+      let left = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"][start];
+      let right = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"][start + span - 1];
       if (state.meta.weekOf){
         const monday = parseLocalISO(state.meta.weekOf);
         const dl = addDays(monday, start).getDate();
@@ -750,6 +765,21 @@
       mobileWindowLabel.textContent = `${left}–${right}`;
     }
 
+    function setMobileHeaderShortNames(){
+      if (!isMobile()) return;
+      const labels = [];
+      if (state.meta.weekOf){
+        const monday = parseLocalISO(state.meta.weekOf);
+        for (let i=0;i<7;i++){
+          labels.push(`${DAY_ABBR[i]} ${ordinal(addDays(monday,i).getDate())}`);
+        }
+      } else {
+        labels.push(...DAY_ABBR);
+      }
+      const ids = ["mon","tue","wed","thu","fri","sat","sun"];
+      ids.forEach((k,i)=>{ const el=document.getElementById(`th_${k}`); if (el) el.textContent = labels[i]; });
+    }
+
     function applyMobileColumns(){
       const mobile = isMobile();
       mobileControls.style.display = mobile ? "flex" : "none";
@@ -757,11 +787,12 @@
       const colKeys = ["mon","tue","wed","thu","fri","sat","sun"];
 
       if (!mobile){
-        // show all
+        // show all and restore full labels
         colKeys.forEach(k=>{
           document.getElementById(`th_${k}`).classList.remove("mobile-hide");
           document.querySelectorAll(`.col-${k}`).forEach(el=>el.classList.remove("mobile-hide"));
         });
+        updateWeekUI();
         return;
       }
 
@@ -782,6 +813,10 @@
         document.getElementById(`th_${key}`).classList.remove("mobile-hide");
         document.querySelectorAll(`.col-${key}`).forEach(el=>el.classList.remove("mobile-hide"));
       }
+
+      // Short header labels for mobile & update CSS var for widths
+      setMobileHeaderShortNames();
+      document.documentElement.style.setProperty('--mobile-days', String(span));
 
       // Update slider + label
       dayStart.max = String(7 - span);
@@ -895,3 +930,4 @@
   </script>
 </body>
 </html>
+
