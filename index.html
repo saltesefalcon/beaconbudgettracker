@@ -48,7 +48,7 @@
     .howto { display:none; }
     .howto.open { display:block; }
 
-    /* Modal overlay (above sticky table headers) */
+    /* Modal overlay */
     .modal {
       position: fixed; inset: 0; display: none;
       align-items: center; justify-content: center;
@@ -231,6 +231,7 @@
     // ---------- Constants ----------
     const DAYS = ["mon","tue","wed","thu","fri","sat","sun"];
     const DAY_NAME = {mon:"Monday",tue:"Tuesday",wed:"Wednesday",thu:"Thursday",fri:"Friday",sat:"Saturday",sun:"Sunday"};
+    const DAY_ABBR = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 
     const SUPPLIERS = {
       meat_purch:    ["Woodward Meats","The Chefs Warehouse","Jesse Tree","Other"],
@@ -283,7 +284,7 @@
       data: blankWeek(),
       details:{},
       settings:{ base:"projected", alloc:"proportional", pct:{ meat:25, sea:15, bread:10, produce:20, pantry:15, dairy:15 } },
-      ui:{ mobileStart:0, mobileDays:3 }  // mobile view window
+      ui:{ mobileStart:0, mobileDays:3 }
     };
 
     const tbody = document.getElementById("tbody");
@@ -320,7 +321,7 @@
     function addDays(d, n){ const out=new Date(d); out.setDate(d.getDate()+n); return out; }
     function monthShort(d){ return d.toLocaleString(undefined,{month:"short"}); }
     function ordinal(n){ const s=["th","st","nd","rd"], v=n%100; return n+(s[(v-20)%10]||s[v]||s[0]); }
-    function dayShortName(i){ return ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"][i]; }
+    function isMobile(){ return window.innerWidth <= 720; }
     function formatWeekRange(monday){
       const sunday = addDays(monday, 6);
       const sameMonth = monday.getMonth() === sunday.getMonth();
@@ -328,7 +329,6 @@
       const right = `${sameMonth ? sunday.getDate() : monthShort(sunday) + " " + sunday.getDate()}, ${sunday.getFullYear()}`;
       return `${left}–${right}`;
     }
-    function isMobile(){ return window.innerWidth <= 720; }
 
     function updateWeekUI(){
       if (!state.meta.weekOf){
@@ -340,6 +340,7 @@
         document.getElementById("th_sat").textContent = "Saturday";
         document.getElementById("th_sun").textContent = "Sunday";
         weekRangeEl.textContent = "";
+        updateMobileWindowLabel();
         return;
       }
       const monday = parseLocalISO(state.meta.weekOf);
@@ -434,7 +435,6 @@
     function onReposition(){ if (!popover || !currentEdit) return; const anchor = document.querySelector(`[data-anchor='${currentEdit.lineKey}.${currentEdit.dayKey}']`); if (anchor) positionPopover(anchor); }
     function positionPopover(anchorEl){
       if (isMobile()){
-        // bottom sheet – no special positioning needed
         popover.style.top = ""; popover.style.left = ""; return;
       }
       const r = anchorEl.getBoundingClientRect();
@@ -581,13 +581,12 @@
         return td;
       }
       if (line.type==="daysPurch"){
-        const td = buildCollapsedPurchCell(line.key, dayKey);
-        return td;
+        return buildCollapsedPurchCell(line.key, dayKey);
       }
       const td=document.createElement("td");
       td.classList.add(`col-${dayKey}`);
       const val = state.data[line.key][dayKey];
-      td.className = td.className + " totals";
+      td.classList.add("totals");
       td.textContent = val!=="" ? (typeof val==="number" ? money(val) : val) : "";
       return td;
     }
@@ -733,54 +732,64 @@
 
     // ---------- Mobile day slider logic ----------
     function clamp(n,min,max){ return Math.max(min, Math.min(max, n)); }
+
+    function updateMobileWindowLabel(){
+      if (!isMobile()) return;
+      const span = Number(state.ui.mobileDays) || 3;
+      let start = Number(state.ui.mobileStart) || 0;
+      start = clamp(start, 0, 7 - span);
+
+      let left = DAY_ABBR[start], right = DAY_ABBR[start + span - 1];
+      if (state.meta.weekOf){
+        const monday = parseLocalISO(state.meta.weekOf);
+        const dl = addDays(monday, start).getDate();
+        const dr = addDays(monday, start + span - 1).getDate();
+        left += " " + ordinal(dl);
+        right += " " + ordinal(dr);
+      }
+      mobileWindowLabel.textContent = `${left}–${right}`;
+    }
+
     function applyMobileColumns(){
       const mobile = isMobile();
       mobileControls.style.display = mobile ? "flex" : "none";
-      // Always show all columns on desktop
-      const colClasses = ["mon","tue","wed","thu","fri","sat","sun"];
+
+      const colKeys = ["mon","tue","wed","thu","fri","sat","sun"];
+
       if (!mobile){
-        // Show all
-        colClasses.forEach(k=>{
+        // show all
+        colKeys.forEach(k=>{
           document.getElementById(`th_${k}`).classList.remove("mobile-hide");
           document.querySelectorAll(`.col-${k}`).forEach(el=>el.classList.remove("mobile-hide"));
         });
         return;
       }
-      const span = state.ui.mobileDays;
-      const start = clamp(state.ui.mobileStart, 0, 7 - span);
+
+      const span = Number(state.ui.mobileDays) || 3;
+      let start = Number(state.ui.mobileStart) || 0;
+      start = clamp(start, 0, 7 - span);
       state.ui.mobileStart = start;
-      // hide all, then show window
-      colClasses.forEach(k=>{
+
+      // Hide all
+      colKeys.forEach(k=>{
         document.getElementById(`th_${k}`).classList.add("mobile-hide");
         document.querySelectorAll(`.col-${k}`).forEach(el=>el.classList.add("mobile-hide"));
       });
+
+      // Show the window
       for (let i=0;i<span;i++){
-        const idx = start + i;
-        const key = colClasses[idx];
+        const key = colKeys[start + i];
         document.getElementById(`th_${key}`).classList.remove("mobile-hide");
         document.querySelectorAll(`.col-${key}`).forEach(el=>el.classList.remove("mobile-hide"));
       }
-      updateMobileWindowLabel();
-      // update slider bounds
+
+      // Update slider + label
       dayStart.max = String(7 - span);
       dayStart.value = String(start);
       daysVisible.value = String(span);
+      updateMobileWindowLabel();
     }
-    function updateMobileWindowLabel(){
-      if (!isMobile()) return;
-      const names = state.meta.weekOf ? [
-        document.getElementById("th_mon").textContent.split(" ")[0],
-        document.getElementById("th_tue").textContent.split(" ")[0],
-        document.getElementById("th_wed").textContent.split(" ")[0],
-        document.getElementById("th_thu").textContent.split(" ")[0],
-        document.getElementById("th_fri").textContent.split(" ")[0],
-        document.getElementById("th_sat").textContent.split(" ")[0],
-        document.getElementById("th_sun").textContent.split(" ")[0],
-      ] : ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
-      const span = state.ui.mobileDays, start = state.ui.mobileStart;
-      const end = start + span - 1;
-      mobileWindowLabel.textContent = `${names[start]}–${names[end]}`;
-    }
+
     daysVisible.addEventListener("change", ()=>{
       state.ui.mobileDays = parseInt(daysVisible.value,10) || 3;
       state.ui.mobileStart = clamp(state.ui.mobileStart, 0, 7 - state.ui.mobileDays);
