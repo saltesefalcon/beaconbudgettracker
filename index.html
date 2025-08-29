@@ -210,7 +210,6 @@ const db  = firebase.firestore();
 /* ------------ Helpers & constants ------------- */
 const URL_WS      = new URLSearchParams(location.search).get("ws") || "default";
 const LS_WEEK_KEY = "tracker_last_week";
-if (new URLSearchParams(location.search).has('reset')) localStorage.removeItem('beacon_budget_draft');
 
 const DAYS     = ["mon","tue","wed","thu","fri","sat","sun"];
 const DAYNAME  = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
@@ -238,6 +237,7 @@ const PURCHASE_LINES = {
 };
 
 /* ---------------- Lines layout ---------------- */
+/*  ✅ FULL list including all purchase rows & their over/unders  */
 const LINES = [
   { key:"proj_sales",  label:"Projected Food Sales", type:"days" },
   { key:"actual_sales",label:"Actual Sales",         type:"days" },
@@ -353,7 +353,7 @@ function autoBudgets(){
   const baseSum=sumDays(baseRow);
   for(const line of LINES){
     if(line.type==="autoDays"){
-      if(!state.data[line.key]) state.data[line.key]=blankRow();   // <-- ensure row exists
+      if(!state.data[line.key]) state.data[line.key]=blankRow();   // ensure row exists
       const pct=num(state.settings.pct[line.pctKey]);
       const weekly=baseSum*(pct/100);
       const parts=distributeBudget(weekly,state.data.proj_sales);
@@ -367,7 +367,7 @@ function recalc(){
 
   for(const line of LINES){
     if (line.type==="spacer") continue;
-    if(!state.data[line.key]) state.data[line.key]=blankRow();      // <-- ensure row exists
+    if(!state.data[line.key]) state.data[line.key]=blankRow();      // ensure row exists
 
     const row=state.data[line.key];
     if (line.type==="days"){ row.total = money(sumDays(row)); }
@@ -598,9 +598,8 @@ function subscribe(iso){
     const base=blankWeek(); const remote=snap.exists?(snap.data()||{}):{};
     state.meta.weekOf = iso;
     state.settings = Object.assign({}, state.settings, remote.settings||{});
-    state.data     = Object.assign(base, remote.data||{});   // may be sparse (older docs) — we create missing rows later
+    state.data     = Object.assign(base, remote.data||{});   // may be sparse
     state.details  = remote.details || state.details || {};
-    // after pulling remote we recalc to fill budgets and computed rows
     recalc();
   });
 }
@@ -682,7 +681,7 @@ document.getElementById("exportExcel").onclick=()=>{
   const ws=XLSX.utils.aoa_to_sheet(rows); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"Week");
   XLSX.writeFile(wb,(state.meta.weekOf||"beacon_week")+"_budget.xlsx");
 };
-function thisMondayISO(){ return toISO(startOfWeekMonday(new Date())); }
+function thisMondayISO(){ const d=new Date(); const mon=startOfWeekMonday(d); return toISO(mon); }
 function onWeekChange(raw){
   if(!raw) return;
   const chosen=parseLocalISO(raw); const mon=startOfWeekMonday(chosen); const iso=toISO(mon);
