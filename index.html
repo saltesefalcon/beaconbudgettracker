@@ -32,11 +32,15 @@
   .over{color:var(--warn);font-weight:700}
   .under{color:var(--accent);font-weight:700}
   .note{color:var(--muted);font-size:.85rem}
+
   .summary-banner{display:flex;gap:16px;flex-wrap:wrap;align-items:center;background:#0b1220;border:1px solid #1f2937;padding:10px 12px;border-radius:12px}
   .chip{padding:6px 10px;border-radius:999px;background:#111827;border:1px solid #1f2937}
   .chip b{margin-right:6px}
   .chip.over{border-color:#7f1d1d;background:#1b1212}
   .chip.under{border-color:#14532d;background:#0f1a12}
+
+  .mobile-controls{display:none;justify-content:center;gap:12px;margin:10px 0}
+  .mobile-controls button{font-size:1.1rem;padding:6px 12px}
 
   .howto{ display:none !important; }
   .howto.open{ display:block !important; }
@@ -101,6 +105,12 @@
         <div class="chip"><b>Weekly Budget:</b> <span id="chipBudget">$0.00</span></div>
         <div class="chip"><b>Purchases:</b> <span id="chipPurch">$0.00</span></div>
         <div class="chip" id="chipNet"><b>Net O/U:</b> <span id="chipNetVal">$0.00</span></div>
+      </div>
+
+      <!-- Mobile controls (shown only on phones/portrait) -->
+      <div class="mobile-controls" id="mobileControls">
+        <button id="mobPrev" aria-label="Previous days">◀</button>
+        <button id="mobNext" aria-label="Next days">▶</button>
       </div>
 
       <div class="panel howto" id="howto">
@@ -290,6 +300,49 @@ const shade     = document.getElementById("shade");
 const weekInput = document.getElementById("weekOf");
 const weekRange = document.getElementById("weekRange");
 
+/* -------- Mobile view (2 columns, swipe) ------ */
+let mobileStart = 0;         // starting day index for mobile window (0..5)
+const mobPrev   = document.getElementById("mobPrev");
+const mobNext   = document.getElementById("mobNext");
+const mobCtrls  = document.getElementById("mobileControls");
+
+function isMobilePortrait(){
+  // portrait-ish, narrow width
+  return window.matchMedia("(max-width: 760px)").matches;
+}
+function clampMobileStart(){
+  if(mobileStart<0) mobileStart=0;
+  if(mobileStart>5) mobileStart=5; // 7 days - 2 visible
+}
+function applyMobileVisibility(){
+  const isMob = isMobilePortrait();
+  mobCtrls.style.display = isMob ? "flex" : "none";
+  const cells = document.querySelectorAll('#budgetTable [data-day-idx]');
+  cells.forEach(el=>{
+    const idx = Number(el.getAttribute('data-day-idx'));
+    const hide = isMob && (idx<mobileStart || idx>=mobileStart+2);
+    el.style.display = hide ? "none" : "";
+  });
+}
+mobPrev.addEventListener("click", ()=>{ mobileStart--; clampMobileStart(); applyMobileVisibility(); });
+mobNext.addEventListener("click", ()=>{ mobileStart++; clampMobileStart(); applyMobileVisibility(); });
+
+// finger swipe
+let touchX=null;
+const swipeArea=document.querySelector(".panel");
+swipeArea.addEventListener("touchstart",e=>{ touchX = e.changedTouches[0].clientX; },{passive:true});
+swipeArea.addEventListener("touchend",e=>{
+  if(touchX==null) return;
+  const dx=e.changedTouches[0].clientX - touchX;
+  const TH=40; // threshold px
+  if(Math.abs(dx)>TH){
+    if(dx<0) mobileStart++; else mobileStart--;
+    clampMobileStart(); applyMobileVisibility();
+  }
+  touchX=null;
+},{passive:true});
+window.addEventListener("resize", applyMobileVisibility);
+
 /* ----------------- Auth / Idle ---------------- */
 const signInBtn = document.getElementById("signIn");
 const signOutBtn= document.getElementById("signOut");
@@ -325,10 +378,12 @@ firebase.auth().onAuthStateChanged(user=>{
 function baseSalesRow(){
   if (state.settings.base==="projected") return state.data.proj_sales;
   if (state.settings.base==="actual")    return state.data.actual_sales;
-  const out=blankRow(); let t=0;
+  const out=blankRow();
+  let t=0;
   for(const d of DAYS){
     const a=state.data.actual_sales?.[d]; const p=state.data.proj_sales?.[d];
-    out[d]=(a!=="" && a!=null) ? a : (p||""); t+=num(out[d]);
+    out[d]=(a!=="" && a!=null) ? a : (p||"");
+    t+=num(out[d]);
   }
   out.total=money(t); return out;
 }
@@ -368,7 +423,13 @@ function recalc(){
     if (line.type==="days"){ row.total = money(sumDays(row)); }
 
     if (line.type==="calcSalesDelta"){
-      let tot=0; for(const d of DAYS){ const v=num(state.data.actual_sales?.[d]) - num(state.data.proj_sales?.[d]); row[d]=money(v); tot+=v; }
+      let tot=0;
+      for(const d of DAYS){
+        const hasA = state.data.actual_sales?.[d] !== "" && state.data.actual_sales?.[d] != null;
+        const hasP = state.data.proj_sales?.[d]   !== "" && state.data.proj_sales?.[d]   != null;
+        const v = (hasA && hasP) ? (num(state.data.actual_sales?.[d]) - num(state.data.proj_sales?.[d])) : 0;
+        row[d]=money(v); tot+=v;
+      }
       row.total=money(tot);
     }
 
@@ -398,7 +459,7 @@ function setHeaderDates(){
 }
 function cellTdDayIdx(td,dayKey){ td.setAttribute("data-day-idx",DAYS.indexOf(dayKey)); return td }
 
-/* Build editable cell, tagging with a stable bindid so we can restore caret */
+/* Build editable cell with stable bind id (caret preservation) */
 function buildInputCell(lineKey,dayKey){
   if(!state.data[lineKey]) state.data[lineKey]=blankRow();
   const td=cellTdDayIdx(document.createElement("td"),dayKey);
@@ -428,7 +489,7 @@ function buildPurchCell(lineKey,dayKey){
 function render(){
   setHeaderDates();
 
-  /* --- caret & focus preservation --- */
+  /* caret & focus preservation */
   const active = document.activeElement;
   const isInput = active && active.tagName==="INPUT" && active.dataset && active.dataset.bindid;
   const bindId  = isInput ? active.dataset.bindid : null;
@@ -460,7 +521,7 @@ function render(){
     tbody.appendChild(tr);
   }
 
-  /* restore focus/caret if applicable */
+  /* restore focus/caret */
   if (bindId){
     const next = tbody.querySelector(`input[data-bindid="${bindId}"]`);
     if (next){
@@ -468,15 +529,20 @@ function render(){
       if (caret!=null){ try{ next.setSelectionRange(caret, caret); }catch{} }
     }
   }
+
+  /* apply mobile visibility (2 columns) */
+  clampMobileStart(); applyMobileVisibility();
 }
 function updateSummary(){
   const budgets = ["meat_budget","seafood_budget","bread_budget","produce_budget","pantry_budget","dairy_budget"].reduce((a,k)=>a+num(state.data[k].total),0);
   const purch   = ["meat_purch","seafood_purch","bread_purch","produce_purch","pantry_purch","dairy_purch"].reduce((a,k)=>a+sumDays(state.data[k]),0);
   const proj    = sumDays(state.data.proj_sales);
   const act     = sumDays(state.data.actual_sales);
+  const salesDelta = DAYS.reduce((a,d)=> a + num(state.data.sales_delta?.[d]), 0); // respects "only when both exist"
+
   document.getElementById("chipProj").textContent  = "$"+money(proj);
   document.getElementById("chipAct").textContent   = "$"+money(act);
-  document.getElementById("chipSalesDelta").textContent = "$"+money(act-proj);
+  document.getElementById("chipSalesDelta").textContent = "$"+money(salesDelta);
   document.getElementById("chipBudget").textContent= "$"+money(budgets);
   document.getElementById("chipPurch").textContent = "$"+money(purch);
   const net=budgets-purch; const chipNet=document.getElementById("chipNet");
@@ -514,7 +580,6 @@ function onDragMove(e){ if(!dragging) return; e.preventDefault(); popEl.style.le
 function onDragEnd(){ dragging=false; window.removeEventListener("pointermove", onDragMove); window.removeEventListener("pointerup", onDragEnd); }
 function onEscClose(e){ if(e.key==="Escape") closePopover(); }
 function closePopover(){ popEl.style.display="none"; shade.style.display="none"; popEl.innerHTML=""; document.removeEventListener("keydown", onEscClose); }
-
 function openPurchasesEditor(lineKey,dayKey){
   if(!isOwner) return;
   const meta=PURCHASE_LINES[lineKey];
@@ -614,6 +679,8 @@ function subscribe(iso){
     state.settings = Object.assign({}, state.settings, remote.settings||{});
     state.data     = Object.assign(base, remote.data||{});   // may be sparse
     state.details  = remote.details || state.details || {};
+    // reset mobile window to the start when the week changes
+    mobileStart = 0;
     recalc();
   });
 }
@@ -701,7 +768,9 @@ function onWeekChange(raw){
   const chosen=parseLocalISO(raw); const mon=startOfWeekMonday(chosen); const iso=toISO(mon);
   if(weekInput.value!==iso) weekInput.value=iso;
   localStorage.setItem(LS_WEEK_KEY, iso);
-  state.meta.weekOf=iso; subscribe(iso); setHeaderDates();
+  state.meta.weekOf=iso;
+  mobileStart=0;                 // reset mobile window on change
+  subscribe(iso); setHeaderDates();
 }
 weekInput.addEventListener("change",e=>onWeekChange(e.target.value));
 weekInput.addEventListener("input" ,e=>onWeekChange(e.target.value));
