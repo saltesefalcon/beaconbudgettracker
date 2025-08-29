@@ -38,11 +38,9 @@
   .chip.over{border-color:#7f1d1d;background:#1b1212}
   .chip.under{border-color:#14532d;background:#0f1a12}
 
-  /* Help panel */
   .howto{ display:none !important; }
   .howto.open{ display:block !important; }
 
-  /* Settings/Auth modals */
   .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.45);z-index:9990}
   .modal.open{display:flex}
   .modal .card{background:var(--panel);border:1px solid #1f2937;padding:16px;border-radius:14px;width:min(620px,92vw)}
@@ -50,7 +48,6 @@
   .row label{color:var(--muted)}
   .row .pct{display:flex;align-items:center;gap:6px}
 
-  /* Purchases popover (centered, draggable) */
   .shade{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9998;display:none}
   .popover{position:fixed;z-index:9999;display:none;background:var(--panel);border:1px solid #1f2937;border-radius:14px;box-shadow:0 20px 50px rgba(0,0,0,.5);width:min(760px,95vw);min-width:520px;padding:14px;top:50vh;left:50vw;transform:translate(-50%,-50%)}
   .pop-header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px;cursor:move}
@@ -62,7 +59,6 @@
   .mini{font-size:.95rem;padding:8px 12px}
   .total-badge{background:#0b1220;border:1px solid #374151;padding:6px 10px;border-radius:10px}
 
-  /* Auth status pill */
   .auth{margin-left:auto;display:flex;gap:8px;align-items:center}
   .lock-badge{background:#0b1220;border:1px solid #374151;padding:6px 10px;border-radius:10px;font-weight:600}
   .lock-badge.ok{border-color:#14532d;color:#22c55e}
@@ -402,11 +398,13 @@ function setHeaderDates(){
 }
 function cellTdDayIdx(td,dayKey){ td.setAttribute("data-day-idx",DAYS.indexOf(dayKey)); return td }
 
+/* Build editable cell, tagging with a stable bindid so we can restore caret */
 function buildInputCell(lineKey,dayKey){
   if(!state.data[lineKey]) state.data[lineKey]=blankRow();
   const td=cellTdDayIdx(document.createElement("td"),dayKey);
   const input=document.createElement("input");
   input.type="number"; input.step="0.01"; input.inputMode="decimal";
+  input.dataset.bindid = `${lineKey}.${dayKey}`;
   input.value=state.data[lineKey][dayKey]; input.placeholder="";
   input.addEventListener("input",e=>{ state.data[lineKey][dayKey]=e.target.value; scheduleRecalc(); persist(); scheduleSave(); });
   td.appendChild(input); return td;
@@ -415,7 +413,7 @@ function buildReadOnlyCell(lineKey,dayKey,colorize=false){
   if(!state.data[lineKey]) state.data[lineKey]=blankRow();
   const td=cellTdDayIdx(document.createElement("td"),dayKey);
   const v=num(state.data[lineKey][dayKey]); td.className="totals"; td.textContent=money(v);
-  if(colorize){ if(v<0) td.classList.add("over"); else if(v>0) td.classList.add("under"); }  /* <-- FIX */
+  if(colorize){ if(v<0) td.classList.add("over"); else if(v>0) td.classList.add("under"); }
   return td;
 }
 function buildPurchCell(lineKey,dayKey){
@@ -429,6 +427,13 @@ function buildPurchCell(lineKey,dayKey){
 }
 function render(){
   setHeaderDates();
+
+  /* --- caret & focus preservation --- */
+  const active = document.activeElement;
+  const isInput = active && active.tagName==="INPUT" && active.dataset && active.dataset.bindid;
+  const bindId  = isInput ? active.dataset.bindid : null;
+  const caret   = isInput ? active.selectionStart : null;
+
   for(const l of LINES){ if(l.type!=="spacer" && !state.data[l.key]) state.data[l.key]=blankRow(); }
   tbody.innerHTML="";
   for(const line of LINES){
@@ -453,6 +458,15 @@ function render(){
     totalTd.textContent=money(val);
     tr.appendChild(totalTd);
     tbody.appendChild(tr);
+  }
+
+  /* restore focus/caret if applicable */
+  if (bindId){
+    const next = tbody.querySelector(`input[data-bindid="${bindId}"]`);
+    if (next){
+      next.focus();
+      if (caret!=null){ try{ next.setSelectionRange(caret, caret); }catch{} }
+    }
   }
 }
 function updateSummary(){
@@ -699,7 +713,6 @@ function boot(){
   const initial=qWeek || localStorage.getItem(LS_WEEK_KEY) || thisMondayISO();
   weekInput.value=initial; state.meta.weekOf=initial; setHeaderDates(); subscribe(initial);
 
-  // Force-close Help once at startup
   const h=document.getElementById("howto"); if(h){ h.classList.remove("open"); h.style.display="none"; }
   const btn=document.getElementById("toggleHowto"); if(btn) btn.textContent="Show Help";
 }
