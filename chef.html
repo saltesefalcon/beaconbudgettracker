@@ -31,32 +31,37 @@
 
     .row {
       display:grid;
-      grid-template-columns: 1fr 120px 120px 120px 180px;
+      grid-template-columns: 1fr 150px 150px 150px 180px;
       gap:10px;
       align-items:center;
     }
     .row + .row { margin-top:10px; }
     .label { color:var(--muted); }
-    .num { font-variant-numeric: tabular-nums; text-align:right; }
+    .knum { text-align:right; font-variant-numeric: tabular-nums; }
+    .knum .ttl { display:block; color:var(--muted); font-size:.8rem; line-height:1; margin-bottom:3px; text-align:right; }
     .btn { background:#1f2937; color:var(--ink); border:1px solid #374151; border-radius:10px; padding:8px 12px; cursor:pointer; }
     .btn.primary { background: var(--brand); border-color:#0284c7; color:white; }
     .btn:disabled { opacity:.6; cursor:not-allowed; }
 
-    @media (max-width: 860px){
-      .row { grid-template-columns: 1fr 100px 100px 100px 150px; }
+    @media (max-width: 920px){
+      .row { grid-template-columns: 1fr 130px 130px 130px 160px; }
     }
-    @media (max-width: 640px){
+    @media (max-width: 720px){
       .row {
-        grid-template-columns: 1fr 90px 90px 90px;
+        grid-template-columns: 1fr 1fr;
         grid-template-areas:
-          "label budget spent ou"
-          "button button button button";
+          "label label"
+          "budget spent"
+          "ou     ou"
+          "button button";
       }
       .row .label  { grid-area: label; }
       .row .budget { grid-area: budget; }
       .row .spent  { grid-area: spent; }
       .row .ou     { grid-area: ou; }
       .row .button { grid-area: button; }
+      .knum { text-align:left; }
+      .knum .ttl { text-align:left; }
     }
 
     /* Backdrop + draggable popover */
@@ -67,11 +72,11 @@
     .popover {
       position: fixed; z-index: 9999; background: var(--panel); border:1px solid #1f2937; border-radius:14px;
       box-shadow:0 20px 50px rgba(0,0,0,.5); width:min(760px,95vw); min-width:520px; padding:14px; display:none;
-      top: 50vh; left: 50vw; transform: translate(-50%, -50%); /* centered by default */
-      touch-action: none; /* helps dragging on touch */
+      top: 50vh; left: 50vw; transform: translate(-50%, -50%);
+      touch-action: none;
     }
     @media (max-width: 720px){
-      .shade { display: none; } /* keep page interactive behind the bottom sheet on small screens */
+      .shade { display: none; }
       .popover { left:0 !important; right:0 !important; width:100vw !important; min-width:0 !important;
         bottom:0; top:auto !important; transform: none !important; max-height:75vh; border-radius:16px 16px 0 0; }
     }
@@ -93,10 +98,6 @@
     .lock-badge { background:#0b1220; border:1px solid #374151; padding:6px 10px; border-radius:10px; font-weight:600; }
     .lock-badge.ok { border-color:#14532d; color:#22c55e; }
     .lock-badge.no { border-color:#7f1d1d; color:#ef4444; }
-
-    .modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.55); z-index: 10000; }
-    .modal.open { display: flex; }
-    .card { background: var(--panel); border:1px solid #1f2937; padding:16px; border-radius:14px; width:min(420px,92vw); }
   </style>
 
   <!-- Firebase (Compat SDK) -->
@@ -170,6 +171,7 @@
     };
     const OWNER_UID = "vv2z07G4g5ZG8wsLgJQGkQFxFaf2";
     const URL_WS = new URLSearchParams(location.search).get("ws") || "default";
+    const LS_WEEK_KEY = "chef_last_week";
 
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
@@ -259,7 +261,7 @@
 
     async function saveStatePartial(updates){
       if (!isOwner) return alert("View-only. Sign in to edit.");
-      const weekIso = state?.meta?.weekOf;
+      const weekIso = state?.meta?.weekOf || weekInput.value;
       if (!weekIso) return;
       await weeksCol().doc(weekIso).set(updates, { merge: true });
     }
@@ -271,6 +273,7 @@
       const monday = startOfWeekMonday(chosen);
       const iso = toISO(monday);
       if (weekInput.value !== iso) weekInput.value = iso;
+      localStorage.setItem(LS_WEEK_KEY, iso);
       weekRange.textContent = formatWeekRange(monday);
       subscribe(iso);
     }
@@ -296,7 +299,6 @@
 
       drawPopover();
 
-      // show centered with backdrop (desktop); mobile remains bottom sheet via CSS
       centerPopover();
       shade.style.display = window.matchMedia('(max-width: 720px)').matches ? 'none' : 'block';
       pop.style.display = "block";
@@ -319,7 +321,6 @@
     function onEscClose(e){ if (e.key==="Escape") closePopover(); }
 
     function makeDraggable(){
-      // Only draggable on desktop layout
       if (window.matchMedia('(max-width: 720px)').matches) return;
       const header = pop.querySelector(".pop-header");
       if (!header) return;
@@ -327,7 +328,6 @@
       header.addEventListener("pointerdown", (e)=>{
         dragging = true;
         const rect = pop.getBoundingClientRect();
-        // Switch from centered transform to absolute left/top for dragging
         pop.style.transform = "none";
         pop.style.left = rect.left + "px";
         pop.style.top = rect.top + "px";
@@ -457,7 +457,7 @@
 
       // days list
       daysEl.innerHTML = "";
-      const mondayISO = state?.meta?.weekOf;
+      const mondayISO = (state?.meta?.weekOf) || weekInput.value;
       let monday = mondayISO ? parseLocalISO(mondayISO) : null;
       if (mondayISO && weekInput.value !== mondayISO) weekInput.value = mondayISO;
       weekRange.textContent = monday ? formatWeekRange(monday) : "";
@@ -486,9 +486,16 @@
       const ou = budget - spent;
 
       const a = document.createElement("div"); a.className="label";  a.textContent = label;
-      const b = document.createElement("div"); b.className="num budget"; b.title="Daily Budget"; b.textContent = "$"+money(budget);
-      const c = document.createElement("div"); c.className="num spent";  c.title="Spent";         c.textContent = "$"+money(spent);
-      const d = document.createElement("div"); d.className="num ou " + (ou<0?"over":ou>0?"under":""); d.title="O/U = Budget − Spent"; d.textContent = "$"+money(ou);
+
+      const b = document.createElement("div"); b.className="knum budget";
+      b.innerHTML = `<span class="ttl">Budget</span>$${money(budget)}`;
+
+      const c = document.createElement("div"); c.className="knum spent";
+      c.innerHTML = `<span class="ttl">Spent</span>$${money(spent)}`;
+
+      const d = document.createElement("div");
+      d.className = "knum ou " + (ou<0?"over":ou>0?"under":"");
+      d.innerHTML = `<span class="ttl">O/U</span>$${money(ou)}`;
 
       const btn = document.createElement("button");
       btn.className = "btn button";
@@ -500,9 +507,16 @@
       return wrap;
     }
 
-    /************ Init ************/
-    const qWeek = new URLSearchParams(location.search).get("week");
-    if (qWeek){ onWeekChange(qWeek); }
+    /************ Init — pick a week automatically on load ************/
+    function thisMondayISO(){
+      return toISO(startOfWeekMonday(new Date()));
+    }
+    (function boot(){
+      const qWeek = new URLSearchParams(location.search).get("week");
+      const initial = qWeek || localStorage.getItem(LS_WEEK_KEY) || thisMondayISO();
+      weekInput.value = initial;      // ensures input shows it
+      onWeekChange(initial);          // subscribes immediately
+    })();
   </script>
 </body>
 </html>
