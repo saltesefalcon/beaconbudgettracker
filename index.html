@@ -241,6 +241,11 @@
     const URL_WS = new URLSearchParams(location.search).get("ws") || "default";
     const LS_WEEK_KEY = "tracker_last_week";
 
+if (new URLSearchParams(location.search).has('reset')) {
+  localStorage.removeItem('beacon_budget_draft');
+}
+
+
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
     const weeksCol = () => db.collection("workspaces").doc(URL_WS).collection("weeks");
