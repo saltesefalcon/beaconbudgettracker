@@ -38,7 +38,7 @@
   .chip.over{border-color:#7f1d1d;background:#1b1212}
   .chip.under{border-color:#14532d;background:#0f1a12}
 
-  /* Help panel: start hidden and never get stuck */
+  /* Help panel */
   .howto{ display:none !important; }
   .howto.open{ display:block !important; }
 
@@ -237,7 +237,6 @@ const PURCHASE_LINES = {
 };
 
 /* ---------------- Lines layout ---------------- */
-/*  ✅ FULL list including all purchase rows & their over/unders  */
 const LINES = [
   { key:"proj_sales",  label:"Projected Food Sales", type:"days" },
   { key:"actual_sales",label:"Actual Sales",         type:"days" },
@@ -288,7 +287,7 @@ let state = {
   details:{} // purchases remembered here
 };
 
-/* -------------------- DOM --------------------- */
+/* -------------------- DOM refs ---------------- */
 const tbody     = document.getElementById("tbody");
 const pop       = document.getElementById("popover");
 const shade     = document.getElementById("shade");
@@ -353,7 +352,7 @@ function autoBudgets(){
   const baseSum=sumDays(baseRow);
   for(const line of LINES){
     if(line.type==="autoDays"){
-      if(!state.data[line.key]) state.data[line.key]=blankRow();   // ensure row exists
+      if(!state.data[line.key]) state.data[line.key]=blankRow();
       const pct=num(state.settings.pct[line.pctKey]);
       const weekly=baseSum*(pct/100);
       const parts=distributeBudget(weekly,state.data.proj_sales);
@@ -367,7 +366,7 @@ function recalc(){
 
   for(const line of LINES){
     if (line.type==="spacer") continue;
-    if(!state.data[line.key]) state.data[line.key]=blankRow();      // ensure row exists
+    if(!state.data[line.key]) state.data[line.key]=blankRow();
 
     const row=state.data[line.key];
     if (line.type==="days"){ row.total = money(sumDays(row)); }
@@ -416,7 +415,8 @@ function buildReadOnlyCell(lineKey,dayKey,colorize=false){
   if(!state.data[lineKey]) state.data[lineKey]=blankRow();
   const td=cellTdDayIdx(document.createElement("td"),dayKey);
   const v=num(state.data[lineKey][dayKey]); td.className="totals"; td.textContent=money(v);
-  if(colorize) td.classList.add(v<0?"over":v>0?"under":""); return td;
+  if(colorize){ if(v<0) td.classList.add("over"); else if(v>0) td.classList.add("under"); }  /* <-- FIX */
+  return td;
 }
 function buildPurchCell(lineKey,dayKey){
   if(!state.data[lineKey]) state.data[lineKey]=blankRow();
@@ -606,8 +606,8 @@ function subscribe(iso){
 
 /* ----------------- UI wiring ------------------ */
 document.getElementById("openSettings").onclick=()=>{
-  document.getElementById("budgetBase").value  = state.settings.base||"smart";
-  document.getElementById("allocMethod").value = state.settings.alloc||"proportional";
+  document.getElementById("budgetBase").value  = state.settings.base || "smart";
+  document.getElementById("allocMethod").value = state.settings.alloc|| "proportional";
   document.getElementById("pct_meat").value    = state.settings.pct.meat;
   document.getElementById("pct_sea").value     = state.settings.pct.sea;
   document.getElementById("pct_bread").value   = state.settings.pct.bread;
