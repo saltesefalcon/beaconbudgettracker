@@ -38,11 +38,11 @@
   .chip.over{border-color:#7f1d1d;background:#1b1212}
   .chip.under{border-color:#14532d;background:#0f1a12}
 
-  /* Help panel must start hidden and never get stuck */
+  /* Help panel: start hidden and never get stuck */
   .howto{ display:none !important; }
   .howto.open{ display:block !important; }
 
-  /* Modal (Settings and Auth) */
+  /* Settings/Auth modals */
   .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.45);z-index:9990}
   .modal.open{display:flex}
   .modal .card{background:var(--panel);border:1px solid #1f2937;padding:16px;border-radius:14px;width:min(620px,92vw)}
@@ -69,10 +69,7 @@
   .lock-badge.no{border-color:#7f1d1d;color:#ef4444}
 </style>
 
-<!-- Excel export -->
 <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
-
-<!-- Firebase compat SDKs -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -192,7 +189,7 @@
     </div>
   </div>
 
-  <!-- Purchases (deliveries) window -->
+  <!-- Purchases window -->
   <div id="shade" class="shade"></div>
   <div id="popover" class="popover"></div>
 
@@ -356,6 +353,7 @@ function autoBudgets(){
   const baseSum=sumDays(baseRow);
   for(const line of LINES){
     if(line.type==="autoDays"){
+      if(!state.data[line.key]) state.data[line.key]=blankRow();   // <-- ensure row exists
       const pct=num(state.settings.pct[line.pctKey]);
       const weekly=baseSum*(pct/100);
       const parts=distributeBudget(weekly,state.data.proj_sales);
@@ -366,14 +364,19 @@ function autoBudgets(){
 }
 function recalc(){
   autoBudgets();
+
   for(const line of LINES){
     if (line.type==="spacer") continue;
+    if(!state.data[line.key]) state.data[line.key]=blankRow();      // <-- ensure row exists
+
     const row=state.data[line.key];
     if (line.type==="days"){ row.total = money(sumDays(row)); }
+
     if (line.type==="calcSalesDelta"){
       let tot=0; for(const d of DAYS){ const v=num(state.data.actual_sales?.[d]) - num(state.data.proj_sales?.[d]); row[d]=money(v); tot+=v; }
       row.total=money(tot);
     }
+
     if (line.type==="calcBudgetDays"){
       let tot=0;
       for(const d of DAYS){
@@ -595,9 +598,10 @@ function subscribe(iso){
     const base=blankWeek(); const remote=snap.exists?(snap.data()||{}):{};
     state.meta.weekOf = iso;
     state.settings = Object.assign({}, state.settings, remote.settings||{});
-    state.data     = Object.assign(base, remote.data||{});
+    state.data     = Object.assign(base, remote.data||{});   // may be sparse (older docs) — we create missing rows later
     state.details  = remote.details || state.details || {};
-    render(); updateSummary();
+    // after pulling remote we recalc to fill budgets and computed rows
+    recalc();
   });
 }
 
@@ -627,7 +631,7 @@ document.getElementById("applySettings").onclick=()=>{
   recalc(); persist(); scheduleSave();
 };
 
-/* NEW: robust Help toggle */
+/* Reliable Help toggle */
 document.getElementById("toggleHowto").onclick=()=>{
   const h=document.getElementById("howto");
   const willOpen = !(h.classList.contains("open"));
@@ -694,9 +698,9 @@ function boot(){
   load();
   const qWeek=new URLSearchParams(location.search).get("week");
   const initial=qWeek || localStorage.getItem(LS_WEEK_KEY) || thisMondayISO();
-  weekInput.value=initial; state.meta.weekOf=initial; setHeaderDates(); subscribe(initial); recalc();
+  weekInput.value=initial; state.meta.weekOf=initial; setHeaderDates(); subscribe(initial);
 
-  // Force-close Help once at startup and normalize button label
+  // Force-close Help once at startup
   const h=document.getElementById("howto"); if(h){ h.classList.remove("open"); h.style.display="none"; }
   const btn=document.getElementById("toggleHowto"); if(btn) btn.textContent="Show Help";
 }
