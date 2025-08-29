@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Chef View — Beacon Food Budget</title>
+  <style>
+    :root { --bg:#0f172a; --panel:#111827; --ink:#e5e7eb; --muted:#9ca3af; --accent:#22c55e; --warn:#ef4444; --brand:#0ea5e9; }
+    html, body { margin:0; padding:0; height:100%; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, "Helvetica Neue", Arial; background:var(--bg); color:var(--ink); }
+    .wrap { max-width: 900px; margin: 24px auto; padding: 16px; }
+
+    h1 { font-size: 1.5rem; margin: 0 0 4px; }
+    .sub { color: var(--muted); font-size: .95rem; margin-bottom: 16px; }
+
+    .panel { background: var(--panel); border-radius: 14px; padding: 14px; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
+
+    .toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+    .toolbar input[type="date"] { background:#0b1220; border:1px solid #1f2937; color:var(--ink); border-radius:10px; padding:8px 10px; }
+    .week-range { margin-left:auto; font-weight:800; font-size:1.05rem; }
+
+    .summary { display:flex; gap:12px; flex-wrap:wrap; padding:10px 12px; background:#0b1220; border:1px solid #1f2937; border-radius:12px; margin-bottom:12px; }
+    .chip { padding:6px 10px; border-radius:999px; background:#111827; border:1px solid #1f2937; }
+    .chip b { margin-right:6px; }
+    .over { color: var(--warn); font-weight:700; }
+    .under { color: var(--accent); font-weight:700; }
+
+    .day { background:#0b1220; border:1px solid #1f2937; border-radius:12px; padding:12px; margin-bottom:10px; }
+    .day h3 { margin:0 0 10px; font-size:1.05rem; }
+    .row { display:grid; grid-template-columns: 1fr auto auto auto; gap:8px; align-items:center; }
+    .row + .row { margin-top:8px; }
+    .label { color:var(--muted); }
+    .num { font-variant-numeric: tabular-nums; text-align:right; }
+    .btn { background:#1f2937; color:var(--ink); border:1px solid #374151; border-radius:10px; padding:8px 12px; cursor:pointer; }
+    .btn.primary { background: var(--brand); border-color:#0284c7; color:white; }
+    .btn:disabled { opacity:.6; cursor:not-allowed; }
+
+    .legend { color:var(--muted); font-size:.9rem; display:flex; gap:16px; margin-bottom:6px; }
+    .legend span { display:inline-block; }
+
+    /* Popover (purchases editor) */
+    .popover {
+      position:fixed; z-index:9999; background:var(--panel); border:1px solid #1f2937; border-radius:14px;
+      box-shadow:0 20px 50px rgba(0,0,0,.5); width:min(760px,95vw); min-width:520px; padding:14px;
+    }
+    @media (max-width: 720px){
+      .popover { left:0 !important; right:0 !important; width:100vw !important; min-width:0 !important;
+        bottom:0; top:auto !important; max-height:75vh; border-radius:16px 16px 0 0; }
+    }
+    .pop-header { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:10px; }
+    .pop-title { font-weight:700; }
+    .pop-close { background:transparent; border:1px solid #374151; border-radius:8px; padding:4px 8px; cursor:pointer; }
+    .grid-head, .grid-rows { display:grid; grid-template-columns: 120px 1fr 1fr 44px; gap:8px; align-items:center; }
+    .grid-head { color:var(--muted); font-size:.85rem; margin-bottom:4px; }
+    .pop-actions { display:flex; justify-content:space-between; align-items:center; margin-top:12px; }
+    .mini { font-size:.95rem; padding:8px 12px; }
+    .total-badge { background:#0b1220; border:1px solid #374151; padding:6px 10px; border-radius:10px; }
+
+    input[type="number"], select, input[type="text"] {
+      background:#0b1220; color:var(--ink); border:1px solid #1f2937; border-radius:10px; padding:8px 10px; outline:0; width:100%;
+    }
+
+    /* Auth bits */
+    .auth { margin-left:auto; display:flex; gap:8px; align-items:center; }
+    .lock-badge { background:#0b1220; border:1px solid #374151; padding:6px 10px; border-radius:10px; font-weight:600; }
+    .lock-badge.ok { border-color:#14532d; color:#22c55e; }
+    .lock-badge.no { border-color:#7f1d1d; color:#ef4444; }
+
+    .modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.55); z-index: 10000; }
+    .modal.open { display: flex; }
+    .card { background: var(--panel); border:1px solid #1f2937; padding:16px; border-radius:14px; width:min(420px,92vw); }
+  </style>
+
+  <!-- Firebase (Compat SDK) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Chef View</h1>
+    <div class="sub">Pick a week, see Meat & Seafood budgets and add deliveries. Updates sync with the main tracker.</div>
+
+    <div class="panel">
+      <div class="toolbar">
+        <label>Week of
+          <input id="weekOf" type="date" step="7" min="2000-01-03" />
+        </label>
+        <div id="weekRange" class="week-range"></div>
+
+        <div class="auth">
+          <button id="signIn" class="btn">Sign In</button>
+          <button id="signOut" class="btn" style="display:none">Sign Out</button>
+          <div id="lockBadge" class="lock-badge no">View-only</div>
+        </div>
+      </div>
+
+      <div class="summary">
+        <div class="chip"><b>Weekly Budget:</b> <span id="sumBudget">$0.00</span></div>
+        <div class="chip"><b>Spends:</b> <span id="sumSpends">$0.00</span></div>
+        <div class="chip" id="sumNetChip"><b>Net O/U:</b> <span id="sumNet">$0.00</span></div>
+      </div>
+
+      <div class="legend">
+        <span><b>Budget</b> → planned</span>
+        <span><b>Spent</b> → current purchases</span>
+        <span><b>O/U</b> → Budget − Spent</span>
+      </div>
+
+      <div id="days"></div>
+    </div>
+  </div>
+
+  <!-- Sign-in modal -->
+  <div class="modal" id="authModal" role="dialog" aria-modal="true" aria-label="Admin Sign In">
+    <div class="card">
+      <h3 style="margin-top:0">Sign In</h3>
+      <div style="display:grid; gap:10px">
+        <label>Email <input id="authEmail" type="email" placeholder="owner@example.com"/></label>
+        <label>Password <input id="authPass" type="password" placeholder="••••••••"/></label>
+        <div style="display:flex; gap:8px; justify-content:flex-end">
+          <button class="btn" id="authCancel">Cancel</button>
+          <button class="btn primary" id="authLogin">Sign In</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Purchases popover -->
+  <div id="popover" class="popover" style="display:none"></div>
+
+  <script>
+    /************ Firebase boot ************/
+    const firebaseConfig = {
+      apiKey: "AIzaSyDl7NhJHjm1wp0LwIWN-mtCDh_WD6I-MRA",
+      authDomain: "beacon-budget-tracker.firebaseapp.com",
+      projectId: "beacon-budget-tracker",
+      storageBucket: "beacon-budget-tracker.firebasestorage.app",
+      messagingSenderId: "331061494606",
+      appId: "1:331061494606:web:8edb403b944002ed80141f"
+    };
+    const OWNER_UID = "vv2z07G4g5ZG8wsLgJQGkQFxFaf2";
+    const URL_WS = new URLSearchParams(location.search).get("ws") || "default";
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const weeksCol = () => db.collection("workspaces").doc(URL_WS).collection("weeks");
+
+    /************ State ************/
+    const DAYS_KEYS = ["mon","tue","wed","thu","fri","sat","sun"];
+    const DAY_NAME = {mon:"Monday",tue:"Tuesday",wed:"Wednesday",thu:"Thursday",fri:"Friday",sat:"Saturday",sun:"Sunday"};
+    const DAY_ABBR = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+
+    let state = null;           // will mirror tracker state doc
+    let isOwner = false;
+    let unsub = null;
+
+    const weekInput = document.getElementById("weekOf");
+    const weekRange = document.getElementById("weekRange");
+    const daysEl = document.getElementById("days");
+    const pop = document.getElementById("popover");
+
+    /************ Utils ************/
+    function parseLocalISO(s){ if(!s) return null; const [y,m,d] = s.split("-").map(Number); const dt=new Date(y,(m||1)-1,(d||1)); dt.setHours(0,0,0,0); return dt; }
+    function toISO(d){ const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,"0"), dd=String(d.getDate()).padStart(2,"0"); return `${y}-${m}-${dd}`; }
+    function startOfWeekMonday(d){ const day=d.getDay(); const diff=(day+6)%7; const out=new Date(d); out.setDate(d.getDate()-diff); out.setHours(0,0,0,0); return out; }
+    function addDays(d,n){ const out=new Date(d); out.setDate(d.getDate()+n); out.setHours(0,0,0,0); return out; }
+    function monthShort(d){ return d.toLocaleString(undefined,{month:"short"}); }
+    function ordinal(n){ const s=["th","st","nd","rd"], v=n%100; return n+(s[(v-20)%10]||s[v]||s[0]); }
+    function num(v){ const n=parseFloat(v); return isNaN(n)?0:n; }
+    function money(n){ return (Math.round(n*100)/100).toFixed(2); }
+    function sumDays(row){ return DAYS_KEYS.reduce((a,k)=>a+num(row?.[k]),0); }
+    function formatWeekRange(monday){
+      if (!monday) return "";
+      const sunday = addDays(monday,6);
+      const same = monday.getMonth()===sunday.getMonth();
+      const left = `${monthShort(monday)} ${monday.getDate()}`;
+      const right = `${same ? sunday.getDate() : monthShort(sunday)+" "+sunday.getDate()}, ${sunday.getFullYear()}`;
+      return `${left}–${right}`;
+    }
+
+    function suppliersFor(lineKey){
+      const map={ meat_purch:"meat", seafood_purch:"sea" };
+      const cat = map[lineKey];
+      const list = state?.settings?.suppliers?.[cat];
+      return Array.isArray(list)&&list.length ? list : ["Other"];
+    }
+
+    /************ Auth ************/
+    const signInBtn = document.getElementById("signIn");
+    const signOutBtn = document.getElementById("signOut");
+    const lockBadge = document.getElementById("lockBadge");
+    const authModal = document.getElementById("authModal");
+
+    function openAuth(){ authModal.classList.add("open"); }
+    function closeAuth(){ authModal.classList.remove("open"); }
+
+    signInBtn.onclick = openAuth;
+    document.getElementById("authCancel").onclick = closeAuth;
+    document.getElementById("authLogin").onclick = async ()=>{
+      const email=(document.getElementById("authEmail").value||"").trim();
+      const pass =(document.getElementById("authPass").value||"").trim();
+      if (!email || !pass) return alert("Enter email & password.");
+      try { await firebase.auth().signInWithEmailAndPassword(email, pass); closeAuth(); }
+      catch(e){ console.error(e); alert("Sign-in failed: " + (e.message||e.code)); }
+    };
+    signOutBtn.onclick = ()=> firebase.auth().signOut();
+
+    firebase.auth().onAuthStateChanged(user=>{
+      isOwner = !!(user && user.uid === OWNER_UID);
+      signInBtn.style.display = isOwner ? "none" : "inline-block";
+      signOutBtn.style.display = isOwner ? "inline-block" : "none";
+      lockBadge.textContent = isOwner ? "Editing (Owner)" : "View-only";
+      lockBadge.classList.toggle("ok", isOwner);
+      lockBadge.classList.toggle("no", !isOwner);
+      render(); // refresh buttons disabled state
+    });
+
+    /************ Firestore subscribe ************/
+    function subscribe(weekIso){
+      if (unsub) { unsub(); unsub=null; }
+      if (!weekIso) return;
+      unsub = weeksCol().doc(weekIso).onSnapshot(snap=>{
+        if (!snap.exists){ state = null; render(); return; }
+        state = snap.data();
+        render();
+      });
+    }
+
+    async function saveStatePartial(updates){
+      if (!isOwner) return alert("View-only. Sign in to edit.");
+      const weekIso = state?.meta?.weekOf;
+      if (!weekIso) return;
+      // Merge updates into current doc; keep the rest untouched
+      await weeksCol().doc(weekIso).set(updates, { merge: true });
+    }
+
+    /************ Week picker ************/
+    function onWeekChange(raw){
+      if (!raw){
+        weekRange.textContent = "";
+        subscribe(null);
+        return;
+      }
+      const chosen = parseLocalISO(raw);
+      const monday = startOfWeekMonday(chosen);
+      const iso = toISO(monday);
+      if (weekInput.value !== iso) weekInput.value = iso;
+      weekRange.textContent = formatWeekRange(monday);
+      subscribe(iso);
+    }
+    weekInput.addEventListener("change", e => onWeekChange(e.target.value));
+    weekInput.addEventListener("input",  e => onWeekChange(e.target.value));
+
+    /************ Purchases popover ************/
+    let currentEdit = null; // { lineKey, dayKey, anchor }
+
+    function openPopover(lineKey, dayKey, anchor){
+      if (!isOwner) return; // view-only for non-owner
+      currentEdit = { lineKey, dayKey, anchor };
+      const items = getItems(lineKey, dayKey);
+      if (items.length === 0) items.push({ amount:"", supplier: suppliersFor(lineKey)[0] || "Other", invoice:"" });
+      drawPopover();
+      positionPopover(anchor);
+      pop.style.display = "block";
+      document.addEventListener("keydown", onEscClose);
+      window.addEventListener("resize", onReposition);
+      window.addEventListener("scroll", onReposition, true);
+      setTimeout(()=>{ const first=pop.querySelector("input[type='number']"); if(first) first.focus(); },0);
+    }
+    function closePopover(){
+      pop.style.display = "none";
+      pop.innerHTML = "";
+      document.removeEventListener("keydown", onEscClose);
+      window.removeEventListener("resize", onReposition);
+      window.removeEventListener("scroll", onReposition, true);
+      currentEdit = null;
+    }
+    function onEscClose(e){ if (e.key==="Escape") closePopover(); }
+    function onReposition(){ if (!currentEdit) return; positionPopover(currentEdit.anchor); }
+    function positionPopover(anchor){
+      if (!anchor) { pop.style.top = "10vh"; pop.style.left = "50%"; pop.style.transform = "translateX(-50%)"; return; }
+      const r = anchor.getBoundingClientRect();
+      const margin = 8;
+      const top = Math.min(window.innerHeight - (pop.offsetHeight||360) - margin, Math.max(margin, r.bottom + 6));
+      const left = Math.min(window.innerWidth - (pop.offsetWidth||520) - margin, Math.max(margin, r.left));
+      pop.style.top = `${top}px`; pop.style.left = `${left}px`; pop.style.transform = "none";
+    }
+
+    function getItems(lineKey, dayKey){
+      if (!state.details) state.details = {};
+      if (!state.details[lineKey]) state.details[lineKey] = {};
+      if (!state.details[lineKey][dayKey]) state.details[lineKey][dayKey] = [];
+      return state.details[lineKey][dayKey];
+    }
+
+    function drawPopover(){
+      const { lineKey, dayKey } = currentEdit;
+      const items = getItems(lineKey, dayKey);
+      const suppliers = suppliersFor(lineKey);
+      const supplierOptions = suppliers.map(s=>`<option value="${s}">${s}</option>`).join("");
+
+      pop.innerHTML = `
+        <div class="pop-header">
+          <div class="pop-title">${lineKey==="meat_purch"?"Meat Deliveries":"Seafood Deliveries"} · ${DAY_NAME[dayKey]}</div>
+          <button class="pop-close" id="popCloseBtn">Close</button>
+        </div>
+        <div class="grid-head"><div>Amount</div><div>Supplier</div><div>Invoice #</div><div></div></div>
+        <div class="grid-rows" id="popRows"></div>
+        <div class="pop-actions">
+          <div><button class="mini" id="addLineBtn">Add Line</button></div>
+          <div class="total-badge">Total: $<span id="popTotal">0.00</span></div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px">
+          <button class="btn" id="popCancel">Cancel</button>
+          <button class="btn primary" id="popSave">Save</button>
+        </div>
+      `;
+
+      const rows = pop.querySelector("#popRows");
+
+      function drawRows(){
+        rows.innerHTML = "";
+        items.forEach((it, idx) => {
+          const amt = document.createElement("input");
+          amt.type="number"; amt.step="0.01"; amt.inputMode="decimal"; amt.placeholder="0.00"; amt.value = it.amount ?? "";
+          amt.addEventListener("input", ()=>{ it.amount = amt.value; updateTotal(); });
+
+          const sel = document.createElement("select");
+          sel.innerHTML = supplierOptions; sel.value = it.supplier || suppliers[0] || "Other";
+          sel.addEventListener("input", ()=>{ it.supplier = sel.value; });
+
+          const inv = document.createElement("input");
+          inv.type="text"; inv.placeholder="e.g. 12345"; inv.value = it.invoice ?? "";
+          inv.addEventListener("input", ()=>{ it.invoice = inv.value; });
+
+          const del = document.createElement("button");
+          del.className="btn"; del.style.borderColor="#b91c1c"; del.style.color="#fff"; del.style.background="#ef4444";
+          del.textContent="×"; del.title="Remove line";
+          del.addEventListener("click", ()=>{
+            items.splice(idx,1);
+            if (items.length===0) items.push({ amount:"", supplier: suppliers[0] || "Other", invoice:"" });
+            drawRows(); updateTotal();
+          });
+
+          rows.appendChild(amt); rows.appendChild(sel); rows.appendChild(inv); rows.appendChild(del);
+        });
+      }
+      function updateTotal(){
+        const total = items.reduce((a,it)=>a+(parseFloat(it.amount)||0),0);
+        pop.querySelector("#popTotal").textContent = money(total);
+      }
+
+      drawRows(); updateTotal();
+      pop.querySelector("#addLineBtn").addEventListener("click", ()=>{
+        items.push({ amount:"", supplier: suppliers[0] || "Other", invoice:"" });
+        drawRows(); updateTotal();
+      });
+      pop.querySelector("#popSave").addEventListener("click", async ()=>{
+        const total = items.reduce((a,it)=>a+(parseFloat(it.amount)||0),0);
+        state.data[lineKey][dayKey] = money(total);
+        // update totals for that row
+        state.data[lineKey].total = money(sumDays(state.data[lineKey]));
+        await saveStatePartial({ data: state.data, details: state.details });
+        closePopover();
+        render();
+      });
+      pop.querySelector("#popCancel").addEventListener("click", closePopover);
+      pop.querySelector("#popCloseBtn").addEventListener("click", closePopover);
+    }
+
+    /************ Render ************/
+    function render(){
+      // header summary (meat + seafood only)
+      const budget = num(state?.data?.meat_budget?.total) + num(state?.data?.seafood_budget?.total);
+      const spends = sumDays(state?.data?.meat_purch) + sumDays(state?.data?.seafood_purch);
+      const net = budget - spends;
+
+      document.getElementById("sumBudget").textContent = "$"+money(budget);
+      document.getElementById("sumSpends").textContent = "$"+money(spends);
+      const netEl = document.getElementById("sumNet");
+      const netChip = document.getElementById("sumNetChip");
+      netEl.textContent = "$"+money(net);
+      netChip.classList.remove("over","under");
+      if (net < 0) netChip.classList.add("over");
+      if (net > 0) netChip.classList.add("under");
+
+      // days list
+      daysEl.innerHTML = "";
+      const mondayISO = state?.meta?.weekOf;
+      let monday = mondayISO ? parseLocalISO(mondayISO) : null;
+      if (mondayISO && weekInput.value !== mondayISO) weekInput.value = mondayISO;
+      weekRange.textContent = monday ? formatWeekRange(monday) : "";
+
+      DAYS_KEYS.forEach((k, idx) => {
+        const dayBox = document.createElement("div");
+        dayBox.className = "day";
+        const dateStr = monday ? ` — ${DAY_ABBR[idx]} ${ordinal(addDays(monday, idx).getDate())}` : "";
+        dayBox.innerHTML = `<h3>${DAY_NAME[k]}${dateStr}</h3>`;
+
+        // Meat
+        dayBox.appendChild(buildRow("Meat", "meat_budget", "meat_purch", k, "Meat Deliveries"));
+        // Seafood
+        dayBox.appendChild(buildRow("Seafood", "seafood_budget", "seafood_purch", k, "Seafood Deliveries"));
+
+        daysEl.appendChild(dayBox);
+      });
+    }
+
+    function buildRow(label, budgetKey, purchKey, dayKey, btnText){
+      const wrap = document.createElement("div"); wrap.className = "row";
+      const budget = num(state?.data?.[budgetKey]?.[dayKey]);
+      const spent  = num(state?.data?.[purchKey]?.[dayKey]);
+      const ou = budget - spent;
+
+      const a = document.createElement("div"); a.className="label"; a.textContent = label;
+      const b = document.createElement("div"); b.className="num"; b.title="Daily Budget"; b.textContent = "$"+money(budget);
+      const c = document.createElement("div"); c.className="num"; c.title="Spent"; c.textContent = spent ? "$"+money(spent) : "$0.00";
+      const d = document.createElement("div"); d.className="num " + (ou<0?"over":ou>0?"under":""); d.title="O/U = Budget − Spent"; d.textContent = "$"+money(ou);
+
+      const btn = document.createElement("button");
+      btn.className = "btn";
+      btn.style.gridColumn = "1 / -1";
+      btn.textContent = btnText;
+      if (!isOwner) btn.disabled = true;
+      btn.addEventListener("click", (e)=> openPopover(purchKey, dayKey, e.currentTarget));
+
+      // Layout: [Label][Budget][Spent][O/U] + full-width button underneath
+      wrap.appendChild(a); wrap.appendChild(b); wrap.appendChild(c); wrap.appendChild(d);
+      wrap.appendChild(btn);
+      return wrap;
+    }
+
+    /************ Init ************/
+    // If arriving with ?week=YYYY-MM-DD, honor it; else keep empty until chosen.
+    const qWeek = new URLSearchParams(location.search).get("week");
+    if (qWeek){ onWeekChange(qWeek); }
+  </script>
+</body>
+</html>
