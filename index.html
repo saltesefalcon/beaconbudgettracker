@@ -47,6 +47,7 @@
     .modal { position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.55); z-index:10000; }
     .modal.open { display:flex; }
     .modal .card { background:var(--panel); border:1px solid #1f2937; padding:16px; border-radius:14px; width:min(620px, 92vw); }
+
     .row { display:grid; grid-template-columns: 1fr 180px; gap:10px; align-items:center; margin-bottom:8px; }
     .row label { color:var(--muted); }
     .row .pct { display:flex; align-items:center; gap:6px; }
@@ -88,7 +89,6 @@
     .lock-badge.no { border-color:#7f1d1d; color:#ef4444; }
   </style>
 
-  <!-- SheetJS for Excel export -->
   <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
 
   <!-- Firebase (Compat SDK) -->
@@ -248,8 +248,6 @@
     /***************** Constants & helpers *****************/
     const DAYS = ["mon","tue","wed","thu","fri","sat","sun"];
     const DAYNAME = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
-    function blankRow(){ return { mon:"",tue:"",wed:"",thu:"",fri:"",sat:"",sun:"", total:"" }; }
-    function blankWeek(){ const o={}; for (const l of LINES) if(l.type!=="spacer") o[l.key]=blankRow(); return o; }
     function num(v){ const n=parseFloat(v); return isNaN(n)?0:n; }
     function money(n){ return (Math.round(n*100)/100).toFixed(2); }
     function sumDays(row){ return DAYS.reduce((a,d)=>a+num(row?.[d]),0); }
@@ -261,7 +259,7 @@
     function ordinal(n){ const s=["th","st","nd","rd"], v=n%100; return n+(s[(v-20)%10]||s[v]||s[0]); }
     function formatWeekRange(monday){ if(!monday) return ""; const sunday=addDays(monday,6); const same=monday.getMonth()===sunday.getMonth(); const left=`${monthShort(monday)} ${monday.getDate()}`; const right=`${same ? sunday.getDate() : monthShort(sunday)+" "+sunday.getDate()}, ${sunday.getFullYear()}`; return `${left}–${right}`; }
 
-    /* Purchase line metadata */
+    // Purchase line metadata
     const PURCHASE_LINES = {
       meat_purch:    { suppliersKey: "meat",    title: "Meat Deliveries" },
       seafood_purch: { suppliersKey: "sea",     title: "Seafood Deliveries" },
@@ -275,7 +273,6 @@
     const LINES = [
       { key: "proj_sales",  label: "Projected Food Sales", type: "days" },
       { key: "actual_sales",label: "Actual Sales",         type: "days" },
-      // Sales over/under PER DAY (Actual - Projected), total is sum
       { key: "sales_delta", label: "Sales O/U",            type: "calcSalesDelta" },
 
       { key: "meat_budget",       label: "Meat Budget",        type: "autoDays", pctKey:"meat" },
@@ -306,12 +303,22 @@
       { key: "dairy_over",    label: "over/under",        type: "calcBudgetDays", dependsOnBudget: "dairy_budget", dependsOnPurch: "dairy_purch" },
     ];
 
+    /***************** Build blank week from LINES *****************/
+    function blankRow(){ return { mon:"",tue:"",wed:"",thu:"",fri:"",sat:"",sun:"", total:"" }; }
+    function blankWeek(){
+      const o={};
+      for (const l of LINES){
+        if (l.type!=="spacer") o[l.key]=blankRow();
+      }
+      return o;
+    }
+
     /***************** App state *****************/
     let state = {
       meta: { weekOf: "" },
       data: blankWeek(),
       settings: {
-        base: "smart",                 // 'projected' | 'actual' | 'smart' (actual when present)
+        base: "smart",                 // 'projected' | 'actual' | 'smart'
         alloc: "proportional",         // 'proportional' | 'even'
         pct: { meat:25, sea:15, bread:10, produce:20, pantry:15, dairy:15 },
         suppliers: { meat:[], sea:[], bread:[], produce:[], pantry:[], dairy:[] }
@@ -326,7 +333,7 @@
     const weekInput = document.getElementById("weekOf");
     const weekRange = document.getElementById("weekRange");
 
-    /***************** Auth (owner-only edit) + idle signout *****************/
+    /***************** Auth (owner-only) + idle signout *****************/
     const signInBtn = document.getElementById("signIn");
     const signOutBtn = document.getElementById("signOut");
     const lockBadge = document.getElementById("lockBadge");
@@ -343,10 +350,7 @@
     signOutBtn.onclick = ()=> firebase.auth().signOut();
 
     let isOwner=false, idleTimer=null;
-    function resetIdle(){
-      if (idleTimer) clearTimeout(idleTimer);
-      idleTimer = setTimeout(()=> firebase.auth().signOut().catch(()=>{}), 10*60*1000); // 10 min
-    }
+    function resetIdle(){ if (idleTimer) clearTimeout(idleTimer); idleTimer = setTimeout(()=> firebase.auth().signOut().catch(()=>{}), 10*60*1000); }
     ["click","keydown","mousemove","touchstart"].forEach(ev=> window.addEventListener(ev, resetIdle, {passive:true}));
 
     firebase.auth().onAuthStateChanged(user=>{
@@ -397,7 +401,7 @@
     function baseSalesRow(){
       if (state.settings.base === "projected") return state.data.proj_sales;
       if (state.settings.base === "actual")    return state.data.actual_sales;
-      // smart: day uses actual if present else projected
+      // smart: actual when present, else projected
       const out = blankRow();
       let tot=0;
       for (const d of DAYS){
@@ -473,9 +477,6 @@
           }
           row.total = money(total);
         }
-        if (line.type === "autoDays" || line.type==="calc") {
-          // already set totals above
-        }
       }
       render();
       updateSummary();
@@ -483,7 +484,7 @@
 
     // debounced recalc & save
     let recalcTimer=null, saveTimer=null;
-    function scheduleRecalc(){ clearTimeout(recalcTimer); recalcTimer=setTimeout(recalc, 250); }
+    function scheduleRecalc(){ clearTimeout(recalcTimer); recalcTimer=setTimeout(recalc, 200); }
     function scheduleSave(){ clearTimeout(saveTimer); saveTimer=setTimeout(()=> saveStatePartial({ data: state.data, details: state.details, settings: state.settings, meta: state.meta }), 400); }
 
     /***************** Render *****************/
@@ -502,8 +503,10 @@
       weekRange.textContent = monday ? formatWeekRange(monday) : "";
     }
 
+    function cellTdDayIdx(td, dayKey){ td.setAttribute("data-day-idx", DAYS.indexOf(dayKey)); return td; }
+
     function buildPurchCell(lineKey, dayKey){
-      const td=document.createElement("td"); td.setAttribute("data-day-idx", DAYS.indexOf(dayKey));
+      const td=cellTdDayIdx(document.createElement("td"), dayKey);
       const btn=document.createElement("button");
       const val = state.data[lineKey][dayKey];
       btn.textContent = (val && num(val)>0) ? "$"+money(num(val)) : "Click to add purchases";
@@ -516,7 +519,7 @@
     }
 
     function buildReadOnlyCell(lineKey, dayKey, colorize=false){
-      const td=document.createElement("td"); td.setAttribute("data-day-idx", DAYS.indexOf(dayKey));
+      const td=cellTdDayIdx(document.createElement("td"), dayKey);
       const v = num(state.data[lineKey][dayKey]);
       td.className="totals";
       td.textContent = money(v);
@@ -525,7 +528,7 @@
     }
 
     function buildInputCell(lineKey, dayKey){
-      const td=document.createElement("td"); td.setAttribute("data-day-idx", DAYS.indexOf(dayKey));
+      const td=cellTdDayIdx(document.createElement("td"), dayKey);
       const input=document.createElement("input");
       input.type="number"; input.step="0.01"; input.inputMode="decimal";
       input.value=state.data[lineKey][dayKey];
@@ -568,14 +571,10 @@
           tr.appendChild(cell);
         }
 
-        // Totals column
         const totalTd=document.createElement("td");
         const val = num(state.data[line.key].total);
-        if (line.type==="calcBudgetDays" || line.type==="calcSalesDelta"){
-          totalTd.className="totals " + (val<0?"over":val>0?"under":"");
-        } else {
-          totalTd.className="totals";
-        }
+        totalTd.className = (line.type==="calcBudgetDays" || line.type==="calcSalesDelta") ?
+          ("totals " + (val<0?"over":val>0?"under":"")) : "totals";
         totalTd.textContent=money(val);
         tr.appendChild(totalTd);
 
@@ -601,13 +600,12 @@
     }
 
     /***************** Purchases editor (centered + draggable) *****************/
-    let dragging=false, dragDX=0, dragDY=0, currentEdit=null;
+    let dragging=false, dragDX=0, dragDY=0;
 
     function centerPopover(){ pop.style.top='50vh'; pop.style.left='50vw'; pop.style.transform='translate(-50%, -50%)'; }
 
     function openPurchasesEditor(lineKey, dayKey){
       if (!isOwner) return;
-      currentEdit = { lineKey, dayKey };
       const meta = PURCHASE_LINES[lineKey];
 
       const items = ensureDetailsSlot(lineKey, dayKey);
@@ -629,13 +627,12 @@
 
     function onEscClose(e){ if (e.key==="Escape") closePopover(); }
     function closePopover(){
-      pop.style.display="none"; shade.style.display="none"; pop.innerHTML=""; currentEdit=null;
+      pop.style.display="none"; shade.style.display="none"; pop.innerHTML="";
       document.removeEventListener("keydown", onEscClose);
       window.removeEventListener("pointermove", onDragMove);
       window.removeEventListener("pointerup", onDragEnd);
       dragging=false;
     }
-
     function makeDraggable(){
       if (window.matchMedia('(max-width: 720px)').matches) return; // skip on mobile sheet
       const header = pop.querySelector(".pop-header");
@@ -734,7 +731,7 @@
     function persist(){ localStorage.setItem("beacon_budget_draft", JSON.stringify(state)); }
     function load(){
       const raw=localStorage.getItem("beacon_budget_draft"); if(!raw) return;
-      try{ const obj=JSON.parse(raw); if(obj){ state=obj; if(!state.details) state.details={}; } }catch{}
+      try{ const obj=JSON.parse(raw); if(obj){ state=obj; if(!state.details) state.details={}; if(!state.data) state.data=blankWeek(); } }catch{}
     }
 
     async function saveStatePartial(updates){
@@ -752,19 +749,13 @@
       if (unsub) { unsub(); unsub=null; }
       if (!weekIso) return;
       unsub = weeksCol().doc(weekIso).onSnapshot(snap=>{
-        if (!snap.exists){
-          // Create skeleton doc (meta only) on first edit; for now just render blank
-          state.meta.weekOf = weekIso;
-          render(); updateSummary();
-          return;
-        }
-        const remote = snap.data()||{};
-        // Merge minimal to avoid blowing away local drafts mid-edit
-        if (remote.meta) state.meta = remote.meta;
-        if (remote.settings) state.settings = Object.assign({}, state.settings, remote.settings);
-        if (remote.data) state.data = Object.assign({}, state.data, remote.data);
-        if (!state.details) state.details = {};
-        if (remote.details) state.details = remote.details; // take server truth for details
+        state.meta.weekOf = weekIso;
+        // ALWAYS start from a full blankWeek and merge remote on top
+        const base = blankWeek();
+        const remote = snap.exists ? (snap.data()||{}) : {};
+        state.settings = Object.assign({}, state.settings, remote.settings||{});
+        state.data     = Object.assign(base, remote.data||{});   // <-- ensures all rows exist
+        state.details  = remote.details || state.details || {};
         render(); updateSummary();
       });
     }
@@ -818,7 +809,8 @@
       const key=prompt("Enter name:\n"+items.map(k=>k.replace("beacon_budget_","")).join("\n"));
       if(!key) return;
       const raw=localStorage.getItem("beacon_budget_"+key); if(!raw){ alert("Not found."); return; }
-      state=JSON.parse(raw); recalc(); persist(); scheduleSave();
+      state=JSON.parse(raw); if(!state.details) state.details={}; if(!state.data) state.data=blankWeek();
+      recalc(); persist(); scheduleSave();
     });
 
     document.getElementById("exportJSON").addEventListener("click", ()=>{
@@ -827,7 +819,7 @@
     });
     document.getElementById("importFile").addEventListener("change", (e)=>{
       const f=e.target.files?.[0]; if(!f) return; const r=new FileReader();
-      r.onload=(ev)=>{ try{ const obj=JSON.parse(ev.target.result); if(obj){ state=obj; if(!state.details) state.details={}; recalc(); persist(); scheduleSave(); } } catch { alert("Invalid file"); } };
+      r.onload=(ev)=>{ try{ const obj=JSON.parse(ev.target.result); if(obj){ state=obj; if(!state.details) state.details={}; if(!state.data) state.data=blankWeek(); recalc(); persist(); scheduleSave(); } } catch { alert("Invalid file"); } };
       r.readAsText(f);
     });
 
