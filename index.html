@@ -38,6 +38,10 @@
   .chip.over{border-color:#7f1d1d;background:#1b1212}
   .chip.under{border-color:#14532d;background:#0f1a12}
 
+  /* Help panel must start hidden and never get stuck */
+  .howto{ display:none !important; }
+  .howto.open{ display:block !important; }
+
   /* Modal (Settings and Auth) */
   .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.45);z-index:9990}
   .modal.open{display:flex}
@@ -209,7 +213,6 @@ const db  = firebase.firestore();
 /* ------------ Helpers & constants ------------- */
 const URL_WS      = new URLSearchParams(location.search).get("ws") || "default";
 const LS_WEEK_KEY = "tracker_last_week";
-/* one-time helper: add ?reset=1 to the URL to clear a stale local draft */
 if (new URLSearchParams(location.search).has('reset')) localStorage.removeItem('beacon_budget_draft');
 
 const DAYS     = ["mon","tue","wed","thu","fri","sat","sun"];
@@ -285,7 +288,7 @@ let state = {
     pct:{ meat:25, sea:15, bread:10, produce:20, pantry:15, dairy:15 },
     suppliers:{ meat:[], sea:[], bread:[], produce:[], pantry:[], dairy:[] }
   },
-  details:{} // <-- purchases remembered here
+  details:{} // purchases remembered here
 };
 
 /* -------------------- DOM --------------------- */
@@ -337,7 +340,6 @@ function baseSalesRow(){
   }
   out.total=money(t); return out;
 }
-
 function distributeBudget(weekly, projRow){
   const out={mon:0,tue:0,wed:0,thu:0,fri:0,sat:0,sun:0};
   if (state.settings.alloc==="even"){
@@ -349,7 +351,6 @@ function distributeBudget(weekly, projRow){
   }
   return out;
 }
-
 function autoBudgets(){
   const baseRow=baseSalesRow();
   const baseSum=sumDays(baseRow);
@@ -363,36 +364,29 @@ function autoBudgets(){
     }
   }
 }
-
 function recalc(){
   autoBudgets();
-
   for(const line of LINES){
     if (line.type==="spacer") continue;
-    const row = state.data[line.key];
-    if (line.type==="days"){
-      row.total = money(sumDays(row));
-    }
+    const row=state.data[line.key];
+    if (line.type==="days"){ row.total = money(sumDays(row)); }
     if (line.type==="calcSalesDelta"){
-      let tot=0;
-      for(const d of DAYS){ const v=num(state.data.actual_sales?.[d]) - num(state.data.proj_sales?.[d]); row[d]=money(v); tot+=v; }
+      let tot=0; for(const d of DAYS){ const v=num(state.data.actual_sales?.[d]) - num(state.data.proj_sales?.[d]); row[d]=money(v); tot+=v; }
       row.total=money(tot);
     }
     if (line.type==="calcBudgetDays"){
       let tot=0;
       for(const d of DAYS){
-        const bud  = num(state.data[line.dependsOnBudget]?.[d]);
-        const pur  = num(state.data[line.dependsOnPurch ]?.[d]);
-        const hasP = state.data[line.dependsOnPurch]?.[d] !== "" && state.data[line.dependsOnPurch]?.[d] != null;
-        const v = hasP ? (bud - pur) : 0;
-        row[d] = money(v); tot+=v;
+        const bud=num(state.data[line.dependsOnBudget]?.[d]);
+        const pur=num(state.data[line.dependsOnPurch ]?.[d]);
+        const hasP=state.data[line.dependsOnPurch]?.[d] !== "" && state.data[line.dependsOnPurch]?.[d] != null;
+        const v=hasP?(bud-pur):0; row[d]=money(v); tot+=v;
       }
       row.total=money(tot);
     }
   }
   render(); updateSummary();
 }
-
 let recalcTimer=null, saveTimer=null;
 function scheduleRecalc(){ clearTimeout(recalcTimer); recalcTimer=setTimeout(recalc,200); }
 function scheduleSave(){  clearTimeout(saveTimer ); saveTimer =setTimeout(()=> saveStatePartial({data:state.data,details:state.details,settings:state.settings,meta:state.meta}),350); }
@@ -430,21 +424,16 @@ function buildPurchCell(lineKey,dayKey){
   btn.addEventListener("click",()=> openPurchasesEditor(lineKey,dayKey));
   td.appendChild(btn); return td;
 }
-
 function render(){
   setHeaderDates();
-  // heal any missing rows (old drafts)
   for(const l of LINES){ if(l.type!=="spacer" && !state.data[l.key]) state.data[l.key]=blankRow(); }
-
   tbody.innerHTML="";
   for(const line of LINES){
     const tr=document.createElement("tr");
     const th=document.createElement("th"); th.textContent=line.label; tr.appendChild(th);
-
     if(line.type==="spacer"){
       const td=document.createElement("td"); td.colSpan=8; td.innerHTML="&nbsp;"; tr.appendChild(td); tbody.appendChild(tr); continue;
     }
-
     for(const d of DAYS){
       let cell;
       if(line.type==="days"){ cell=buildInputCell(line.key,d); }
@@ -455,17 +444,14 @@ function render(){
       else { cell=buildReadOnlyCell(line.key,d,false); }
       tr.appendChild(cell);
     }
-
     const totalTd=document.createElement("td");
     const val=num(state.data[line.key].total);
     totalTd.className=(line.type==="calcBudgetDays"||line.type==="calcSalesDelta")?("totals "+(val<0?"over":val>0?"under":"")):"totals";
     totalTd.textContent=money(val);
     tr.appendChild(totalTd);
-
     tbody.appendChild(tr);
   }
 }
-
 function updateSummary(){
   const budgets = ["meat_budget","seafood_budget","bread_budget","produce_budget","pantry_budget","dairy_budget"].reduce((a,k)=>a+num(state.data[k].total),0);
   const purch   = ["meat_purch","seafood_purch","bread_purch","produce_purch","pantry_purch","dairy_purch"].reduce((a,k)=>a+sumDays(state.data[k]),0);
@@ -493,38 +479,36 @@ function supplierOptionsFor(lineKey){
   const list=state?.settings?.suppliers?.[key];
   return (Array.isArray(list)&&list.length?list:["Other"]);
 }
-
 let dragging=false, dragDX=0, dragDY=0;
-function centerPopover(){ pop.style.top="50vh"; pop.style.left="50vw"; pop.style.transform="translate(-50%,-50%)"; }
+const popEl = document.getElementById("popover");
+function centerPopover(){ popEl.style.top="50vh"; popEl.style.left="50vw"; popEl.style.transform="translate(-50%,-50%)"; }
 function makeDraggable(){
-  const header=pop.querySelector(".pop-header"); if(!header) return;
+  const header=popEl.querySelector(".pop-header"); if(!header) return;
   header.addEventListener("pointerdown",(e)=>{
     dragging=true;
-    const r=pop.getBoundingClientRect();
-    pop.style.transform="none"; pop.style.left=r.left+"px"; pop.style.top=r.top+"px";
+    const r=popEl.getBoundingClientRect();
+    popEl.style.transform="none"; popEl.style.left=r.left+"px"; popEl.style.top=r.top+"px";
     dragDX=e.clientX-r.left; dragDY=e.clientY-r.top;
     window.addEventListener("pointermove", onDragMove, {passive:false});
     window.addEventListener("pointerup", onDragEnd);
   });
 }
-function onDragMove(e){ if(!dragging) return; e.preventDefault(); pop.style.left=(e.clientX-dragDX)+"px"; pop.style.top=(e.clientY-dragDY)+"px"; }
+function onDragMove(e){ if(!dragging) return; e.preventDefault(); popEl.style.left=(e.clientX-dragDX)+"px"; popEl.style.top=(e.clientY-dragDY)+"px"; }
 function onDragEnd(){ dragging=false; window.removeEventListener("pointermove", onDragMove); window.removeEventListener("pointerup", onDragEnd); }
 function onEscClose(e){ if(e.key==="Escape") closePopover(); }
-function closePopover(){ pop.style.display="none"; shade.style.display="none"; pop.innerHTML=""; document.removeEventListener("keydown", onEscClose); }
+function closePopover(){ popEl.style.display="none"; shade.style.display="none"; popEl.innerHTML=""; document.removeEventListener("keydown", onEscClose); }
 
 function openPurchasesEditor(lineKey,dayKey){
   if(!isOwner) return;
   const meta=PURCHASE_LINES[lineKey];
   const items=ensureDetailsSlot(lineKey,dayKey);
-
-  // if we have a total but no items yet, seed one item with that total so user sees prior data
   const dayTotal=num(state.data[lineKey]?.[dayKey]);
   if(items.length===0 && dayTotal>0) items.push({amount:String(dayTotal),supplier:supplierOptionsFor(lineKey)[0]||"Other",invoice:""});
   if(items.length===0) items.push({amount:"",supplier:supplierOptionsFor(lineKey)[0]||"Other",invoice:""});
 
   const supplierOptions=supplierOptionsFor(lineKey).map(s=>`<option value="${s}">${s}</option>`).join("");
 
-  pop.innerHTML=`
+  popEl.innerHTML=`
     <div class="pop-header"><div class="pop-title">${meta.title} · ${dayKey.toUpperCase()}</div><button class="pop-close" id="popCloseBtn">Close</button></div>
     <div class="grid-head"><div>Amount</div><div>Supplier</div><div>Invoice #</div><div></div></div>
     <div class="grid-rows" id="popRows"></div>
@@ -537,8 +521,7 @@ function openPurchasesEditor(lineKey,dayKey){
       <button class="primary" id="popSave">Save</button>
     </div>
   `;
-
-  const rows=pop.querySelector("#popRows");
+  const rows=popEl.querySelector("#popRows");
   function drawRows(){
     rows.innerHTML="";
     items.forEach((it,idx)=>{
@@ -564,51 +547,29 @@ function openPurchasesEditor(lineKey,dayKey){
   }
   function updateTotal(){
     const tot=items.reduce((a,it)=>a+(parseFloat(it.amount)||0),0);
-    pop.querySelector("#popTotal").textContent=money(tot);
+    popEl.querySelector("#popTotal").textContent=money(tot);
   }
-  function persistTemp(){
-    // keep edits if user closes without save, until page reload
-    ensureDetailsSlot(lineKey,dayKey).splice(0,items.length,...items);
-  }
+  function persistTemp(){ ensureDetailsSlot(lineKey,dayKey).splice(0,items.length,...items); }
 
   drawRows(); updateTotal();
 
-  pop.querySelector("#addLineBtn").addEventListener("click",()=>{ items.push({amount:"",supplier:supplierOptionsFor(lineKey)[0]||"Other",invoice:""}); drawRows(); updateTotal(); persistTemp(); });
-  pop.querySelector("#popCancel").addEventListener("click", closePopover);
-  pop.querySelector("#popCloseBtn").addEventListener("click", closePopover);
-
-  pop.querySelector("#popSave").addEventListener("click", async ()=>{
-    // filter out empty amounts, then compute and persist
-    const cleaned = items
-      .map(it=>({amount: String(it.amount||""), supplier: it.supplier||"Other", invoice: it.invoice||""}))
-      .filter(it=> (parseFloat(it.amount)||0) > 0 );
-
-    // write to state.details
-    state.details[lineKey][dayKey] = cleaned;
-
-    // compute total and write to state.data for this day
-    const total = cleaned.reduce((a,it)=> a + (parseFloat(it.amount)||0), 0);
-    state.data[lineKey][dayKey] = money(total);
-    state.data[lineKey].total = money(sumDays(state.data[lineKey]));
-
-    // persist both locally and to Firestore
-    persist();
-    await saveStatePartial({ data: state.data, details: state.details });
-
-    recalc(); closePopover();
+  popEl.querySelector("#addLineBtn").addEventListener("click",()=>{ items.push({amount:"",supplier:supplierOptionsFor(lineKey)[0]||"Other",invoice:""}); drawRows(); updateTotal(); persistTemp(); });
+  popEl.querySelector("#popCancel").addEventListener("click", closePopover);
+  popEl.querySelector("#popCloseBtn").addEventListener("click", closePopover);
+  popEl.querySelector("#popSave").addEventListener("click", async ()=>{
+    const cleaned=items.map(it=>({amount:String(it.amount||""),supplier:it.supplier||"Other",invoice:it.invoice||""})).filter(it=>(parseFloat(it.amount)||0)>0);
+    state.details[lineKey][dayKey]=cleaned;
+    const total=cleaned.reduce((a,it)=>a+(parseFloat(it.amount)||0),0);
+    state.data[lineKey][dayKey]=money(total);
+    state.data[lineKey].total=money(sumDays(state.data[lineKey]));
+    persist(); await saveStatePartial({data:state.data,details:state.details}); recalc(); closePopover();
   });
 
-  // open centered/draggable
-  centerPopover();
-  pop.style.display="block"; shade.style.display="block";
-  document.addEventListener("keydown", onEscClose);
-  makeDraggable();
+  centerPopover(); popEl.style.display="block"; shade.style.display="block"; document.addEventListener("keydown", onEscClose); makeDraggable();
 }
 
 /* ---------------- Persistence ----------------- */
 function persist(){ localStorage.setItem("beacon_budget_draft", JSON.stringify(state)); }
-
-// robust loader that heals missing rows
 function load(){
   const raw=localStorage.getItem("beacon_budget_draft"); if(!raw) return;
   try{
@@ -622,18 +583,15 @@ function load(){
     if(!state.settings.suppliers) state.settings.suppliers={meat:[],sea:[],bread:[],produce:[],pantry:[],dairy:[]};
   }catch(e){ console.warn("Bad local draft, ignoring.",e); }
 }
-
 async function saveStatePartial(updates){
   const iso = state?.meta?.weekOf || weekInput.value; if(!iso) return;
   try{ await weeksCol().doc(iso).set(updates,{merge:true}); }
   catch(e){ console.warn("Firestore save failed (offline or view-only).",e); }
 }
-
 let unsub=null;
 function subscribe(iso){
   if(unsub){unsub();unsub=null;} if(!iso) return;
   unsub = weeksCol().doc(iso).onSnapshot(snap=>{
-    // start from a full blankWeek every time to avoid missing-rows bugs
     const base=blankWeek(); const remote=snap.exists?(snap.data()||{}):{};
     state.meta.weekOf = iso;
     state.settings = Object.assign({}, state.settings, remote.settings||{});
@@ -669,15 +627,18 @@ document.getElementById("applySettings").onclick=()=>{
   recalc(); persist(); scheduleSave();
 };
 
+/* NEW: robust Help toggle */
 document.getElementById("toggleHowto").onclick=()=>{
-  const h=document.getElementById("howto"); h.classList.toggle("open");
-  document.getElementById("toggleHowto").textContent = h.classList.contains("open")?"Hide Help":"Show Help";
+  const h=document.getElementById("howto");
+  const willOpen = !(h.classList.contains("open"));
+  h.classList.toggle("open", willOpen);
+  h.style.display = willOpen ? "block" : "none";
+  document.getElementById("toggleHowto").textContent = willOpen ? "Hide Help" : "Show Help";
 };
 
 document.getElementById("newWeek").onclick=()=>{
   state.data=blankWeek(); state.details={}; persist(); recalc(); scheduleSave();
 };
-
 document.getElementById("saveLocal").onclick=()=>{
   const key=prompt("Save draft as:", state.meta.weekOf || weekInput.value || "week"); if(!key) return;
   localStorage.setItem("beacon_budget_"+key, JSON.stringify(state)); alert("Saved locally!");
@@ -691,7 +652,6 @@ document.getElementById("loadLocal").onclick=()=>{
   state={...state,...obj}; state.data=Object.assign(base,obj.data||{}); state.details=obj.details||{};
   recalc(); persist(); scheduleSave();
 };
-
 document.getElementById("exportJSON").onclick=()=>{
   const blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"});
   const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=(state.meta.weekOf||"beacon_week")+"_budget.json"; a.click(); URL.revokeObjectURL(a.href);
@@ -708,7 +668,6 @@ document.getElementById("importFile").addEventListener("change",(e)=>{
   };
   r.readAsText(f);
 });
-
 document.getElementById("exportExcel").onclick=()=>{
   const header=["Line","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday","Totals"];
   const rows=[header]; const label=Object.fromEntries(LINES.map(l=>[l.key,l.label]));
@@ -719,7 +678,6 @@ document.getElementById("exportExcel").onclick=()=>{
   const ws=XLSX.utils.aoa_to_sheet(rows); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"Week");
   XLSX.writeFile(wb,(state.meta.weekOf||"beacon_week")+"_budget.xlsx");
 };
-
 function thisMondayISO(){ return toISO(startOfWeekMonday(new Date())); }
 function onWeekChange(raw){
   if(!raw) return;
@@ -729,7 +687,7 @@ function onWeekChange(raw){
   state.meta.weekOf=iso; subscribe(iso); setHeaderDates();
 }
 weekInput.addEventListener("change",e=>onWeekChange(e.target.value));
-weekInput.addEventListener("input", e=>onWeekChange(e.target.value));
+weekInput.addEventListener("input" ,e=>onWeekChange(e.target.value));
 
 /* -------------------- Boot -------------------- */
 function boot(){
@@ -737,6 +695,10 @@ function boot(){
   const qWeek=new URLSearchParams(location.search).get("week");
   const initial=qWeek || localStorage.getItem(LS_WEEK_KEY) || thisMondayISO();
   weekInput.value=initial; state.meta.weekOf=initial; setHeaderDates(); subscribe(initial); recalc();
+
+  // Force-close Help once at startup and normalize button label
+  const h=document.getElementById("howto"); if(h){ h.classList.remove("open"); h.style.display="none"; }
+  const btn=document.getElementById("toggleHowto"); if(btn) btn.textContent="Show Help";
 }
 boot();
 </script>
