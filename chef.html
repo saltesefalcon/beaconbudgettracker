@@ -7,14 +7,14 @@
   <style>
     :root { --bg:#0f172a; --panel:#111827; --ink:#e5e7eb; --muted:#9ca3af; --accent:#22c55e; --warn:#ef4444; --brand:#0ea5e9; }
     html, body { margin:0; padding:0; height:100%; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, "Helvetica Neue", Arial; background:var(--bg); color:var(--ink); }
-    .wrap { max-width: 900px; margin: 24px auto; padding: 16px; }
+    .wrap { max-width: 980px; margin: 24px auto; padding: 16px; }
 
     h1 { font-size: 1.5rem; margin: 0 0 4px; }
     .sub { color: var(--muted); font-size: .95rem; margin-bottom: 16px; }
 
     .panel { background: var(--panel); border-radius: 14px; padding: 14px; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
 
-    .toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+    .toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
     .toolbar input[type="date"] { background:#0b1220; border:1px solid #1f2937; color:var(--ink); border-radius:10px; padding:8px 10px; }
     .week-range { margin-left:auto; font-weight:800; font-size:1.05rem; }
 
@@ -24,23 +24,45 @@
     .over { color: var(--warn); font-weight:700; }
     .under { color: var(--accent); font-weight:700; }
 
-    .day { background:#0b1220; border:1px solid #1f2937; border-radius:12px; padding:12px; margin-bottom:10px; }
+    .legend { color:var(--muted); font-size:.9rem; display:flex; gap:16px; margin-bottom:6px; }
+
+    .day { background:#0b1220; border:1px solid #1f2937; border-radius:12px; padding:12px; margin-bottom:12px; }
     .day h3 { margin:0 0 10px; font-size:1.05rem; }
-    .row { display:grid; grid-template-columns: 1fr auto auto auto; gap:8px; align-items:center; }
-    .row + .row { margin-top:8px; }
+
+    .row { 
+      display:grid; 
+      grid-template-columns: 1fr 120px 120px 120px 180px; 
+      gap:10px; 
+      align-items:center; 
+    }
+    .row + .row { margin-top:10px; }
     .label { color:var(--muted); }
     .num { font-variant-numeric: tabular-nums; text-align:right; }
     .btn { background:#1f2937; color:var(--ink); border:1px solid #374151; border-radius:10px; padding:8px 12px; cursor:pointer; }
     .btn.primary { background: var(--brand); border-color:#0284c7; color:white; }
     .btn:disabled { opacity:.6; cursor:not-allowed; }
 
-    .legend { color:var(--muted); font-size:.9rem; display:flex; gap:16px; margin-bottom:6px; }
-    .legend span { display:inline-block; }
+    @media (max-width: 860px){
+      .row { grid-template-columns: 1fr 100px 100px 100px 150px; }
+    }
+    @media (max-width: 640px){
+      .row { 
+        grid-template-columns: 1fr 90px 90px 90px; 
+        grid-template-areas:
+          "label budget spent ou"
+          "button button button button";
+      }
+      .row .label  { grid-area: label; }
+      .row .budget { grid-area: budget; }
+      .row .spent  { grid-area: spent; }
+      .row .ou     { grid-area: ou; }
+      .row .button { grid-area: button; }
+    }
 
     /* Popover (purchases editor) */
     .popover {
       position:fixed; z-index:9999; background:var(--panel); border:1px solid #1f2937; border-radius:14px;
-      box-shadow:0 20px 50px rgba(0,0,0,.5); width:min(760px,95vw); min-width:520px; padding:14px;
+      box-shadow:0 20px 50px rgba(0,0,0,.5); width:min(760px,95vw); min-width:520px; padding:14px; display:none;
     }
     @media (max-width: 720px){
       .popover { left:0 !important; right:0 !important; width:100vw !important; min-width:0 !important;
@@ -126,7 +148,7 @@
   </div>
 
   <!-- Purchases popover -->
-  <div id="popover" class="popover" style="display:none"></div>
+  <div id="popover" class="popover"></div>
 
   <script>
     /************ Firebase boot ************/
@@ -150,7 +172,7 @@
     const DAY_NAME = {mon:"Monday",tue:"Tuesday",wed:"Wednesday",thu:"Thursday",fri:"Friday",sat:"Saturday",sun:"Sunday"};
     const DAY_ABBR = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 
-    let state = null;           // will mirror tracker state doc
+    let state = null;           // mirrors tracker week doc
     let isOwner = false;
     let unsub = null;
 
@@ -212,13 +234,13 @@
       lockBadge.textContent = isOwner ? "Editing (Owner)" : "View-only";
       lockBadge.classList.toggle("ok", isOwner);
       lockBadge.classList.toggle("no", !isOwner);
-      render(); // refresh buttons disabled state
+      render(); // refresh button disabled state
     });
 
     /************ Firestore subscribe ************/
     function subscribe(weekIso){
       if (unsub) { unsub(); unsub=null; }
-      if (!weekIso) return;
+      if (!weekIso) { state=null; render(); return; }
       unsub = weeksCol().doc(weekIso).onSnapshot(snap=>{
         if (!snap.exists){ state = null; render(); return; }
         state = snap.data();
@@ -230,17 +252,12 @@
       if (!isOwner) return alert("View-only. Sign in to edit.");
       const weekIso = state?.meta?.weekOf;
       if (!weekIso) return;
-      // Merge updates into current doc; keep the rest untouched
       await weeksCol().doc(weekIso).set(updates, { merge: true });
     }
 
     /************ Week picker ************/
     function onWeekChange(raw){
-      if (!raw){
-        weekRange.textContent = "";
-        subscribe(null);
-        return;
-      }
+      if (!raw){ weekRange.textContent=""; subscribe(null); return; }
       const chosen = parseLocalISO(raw);
       const monday = startOfWeekMonday(chosen);
       const iso = toISO(monday);
@@ -287,6 +304,7 @@
     }
 
     function getItems(lineKey, dayKey){
+      if (!state) state = {};
       if (!state.details) state.details = {};
       if (!state.details[lineKey]) state.details[lineKey] = {};
       if (!state.details[lineKey][dayKey]) state.details[lineKey][dayKey] = [];
@@ -357,8 +375,9 @@
       });
       pop.querySelector("#popSave").addEventListener("click", async ()=>{
         const total = items.reduce((a,it)=>a+(parseFloat(it.amount)||0),0);
+        if (!state.data) state.data = {};
+        if (!state.data[lineKey]) state.data[lineKey] = {mon:"",tue:"",wed:"",thu:"",fri:"",sat:"",sun:"",total:""};
         state.data[lineKey][dayKey] = money(total);
-        // update totals for that row
         state.data[lineKey].total = money(sumDays(state.data[lineKey]));
         await saveStatePartial({ data: state.data, details: state.details });
         closePopover();
@@ -397,9 +416,9 @@
         const dateStr = monday ? ` — ${DAY_ABBR[idx]} ${ordinal(addDays(monday, idx).getDate())}` : "";
         dayBox.innerHTML = `<h3>${DAY_NAME[k]}${dateStr}</h3>`;
 
-        // Meat
+        // Meat row
         dayBox.appendChild(buildRow("Meat", "meat_budget", "meat_purch", k, "Meat Deliveries"));
-        // Seafood
+        // Seafood row
         dayBox.appendChild(buildRow("Seafood", "seafood_budget", "seafood_purch", k, "Seafood Deliveries"));
 
         daysEl.appendChild(dayBox);
@@ -407,31 +426,30 @@
     }
 
     function buildRow(label, budgetKey, purchKey, dayKey, btnText){
-      const wrap = document.createElement("div"); wrap.className = "row";
+      const wrap = document.createElement("div"); 
+      wrap.className = "row";
+
       const budget = num(state?.data?.[budgetKey]?.[dayKey]);
       const spent  = num(state?.data?.[purchKey]?.[dayKey]);
       const ou = budget - spent;
 
-      const a = document.createElement("div"); a.className="label"; a.textContent = label;
-      const b = document.createElement("div"); b.className="num"; b.title="Daily Budget"; b.textContent = "$"+money(budget);
-      const c = document.createElement("div"); c.className="num"; c.title="Spent"; c.textContent = spent ? "$"+money(spent) : "$0.00";
-      const d = document.createElement("div"); d.className="num " + (ou<0?"over":ou>0?"under":""); d.title="O/U = Budget − Spent"; d.textContent = "$"+money(ou);
+      const a = document.createElement("div"); a.className="label";  a.textContent = label;
+      const b = document.createElement("div"); b.className="num budget"; b.title="Daily Budget"; b.textContent = "$"+money(budget);
+      const c = document.createElement("div"); c.className="num spent";  c.title="Spent";         c.textContent = "$"+money(spent);
+      const d = document.createElement("div"); d.className="num ou " + (ou<0?"over":ou>0?"under":""); d.title="O/U = Budget − Spent"; d.textContent = "$"+money(ou);
 
       const btn = document.createElement("button");
-      btn.className = "btn";
-      btn.style.gridColumn = "1 / -1";
+      btn.className = "btn button";
       btn.textContent = btnText;
-      if (!isOwner) btn.disabled = true;
+      btn.disabled = !isOwner;
       btn.addEventListener("click", (e)=> openPopover(purchKey, dayKey, e.currentTarget));
 
-      // Layout: [Label][Budget][Spent][O/U] + full-width button underneath
-      wrap.appendChild(a); wrap.appendChild(b); wrap.appendChild(c); wrap.appendChild(d);
-      wrap.appendChild(btn);
+      // Append in the same order as grid columns; CSS handles wrapping on mobile
+      wrap.appendChild(a); wrap.appendChild(b); wrap.appendChild(c); wrap.appendChild(d); wrap.appendChild(btn);
       return wrap;
     }
 
     /************ Init ************/
-    // If arriving with ?week=YYYY-MM-DD, honor it; else keep empty until chosen.
     const qWeek = new URLSearchParams(location.search).get("week");
     if (qWeek){ onWeekChange(qWeek); }
   </script>
