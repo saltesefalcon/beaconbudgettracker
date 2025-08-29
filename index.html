@@ -67,6 +67,22 @@
   .lock-badge{background:#0b1220;border:1px solid #374151;padding:6px 10px;border-radius:10px;font-weight:600}
   .lock-badge.ok{border-color:#14532d;color:#22c55e}
   .lock-badge.no{border-color:#7f1d1d;color:#ef4444}
+
+  /* ---------- Phone / portrait: responsive two-column view ---------- */
+  @media (max-width:760px){
+    .wrap{padding:10px}
+    table{table-layout:auto;font-size:0.95rem}
+    /* Hide Totals column to give the visible days more room */
+    #budgetTable th.totals-col, #budgetTable td.totals-col{ display:none !important; }
+    /* Responsive widths using viewport units so the two day columns fill the screen */
+    #budgetTable th:first-child, #budgetTable td:first-child{
+      min-width:38vw; max-width:38vw; white-space:normal;
+    }
+    #budgetTable th[data-day-idx], #budgetTable td[data-day-idx]{
+      width:31vw; /* two day columns => ~62vw */
+      white-space:nowrap;
+    }
+  }
 </style>
 
 <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
@@ -133,7 +149,7 @@
             <th data-day-idx="4">Friday</th>
             <th data-day-idx="5">Saturday</th>
             <th data-day-idx="6">Sunday</th>
-            <th>Totals</th>
+            <th class="totals-col">Totals</th>
           </tr>
         </thead>
         <tbody id="tbody"></tbody>
@@ -219,6 +235,7 @@ const LS_WEEK_KEY = "tracker_last_week";
 
 const DAYS     = ["mon","tue","wed","thu","fri","sat","sun"];
 const DAYNAME  = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+const DAYSHORT = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const weeksCol = () => db.collection("workspaces").doc(URL_WS).collection("weeks");
 
 function num(v){ const n=parseFloat(v); return isNaN(n)?0:n; }
@@ -232,7 +249,6 @@ function monthShort(d){ return d.toLocaleString(undefined,{month:"short"}) }
 function ordinal(n){ const s=["th","st","nd","rd"], v=n%100; return n+(s[(v-20)%10]||s[v]||s[0]) }
 function formatWeekRange(mon){ if(!mon) return ""; const sun=addDays(mon,6); const same=mon.getMonth()===sun.getMonth(); const left=`${monthShort(mon)} ${mon.getDate()}`; const right=`${same?sun.getDate():monthShort(sun)+" "+sun.getDate()}, ${sun.getFullYear()}`; return `${left}–${right}`; }
 
-/* ----------- Purchase-line metadata ----------- */
 const PURCHASE_LINES = {
   meat_purch:    { suppliersKey:"meat",    title:"Meat Deliveries" },
   seafood_purch: { suppliersKey:"sea",     title:"Seafood Deliveries" },
@@ -242,7 +258,6 @@ const PURCHASE_LINES = {
   dairy_purch:   { suppliersKey:"dairy",   title:"Dairy Deliveries" },
 };
 
-/* ---------------- Lines layout ---------------- */
 const LINES = [
   { key:"proj_sales",  label:"Projected Food Sales", type:"days" },
   { key:"actual_sales",label:"Actual Sales",         type:"days" },
@@ -276,11 +291,9 @@ const LINES = [
   { key:"dairy_over",    label:"over/under",        type:"calcBudgetDays", dependsOnBudget:"dairy_budget", dependsOnPurch:"dairy_purch" },
 ];
 
-/* ----------------- Blank week ----------------- */
 function blankRow(){ return { mon:"",tue:"",wed:"",thu:"",fri:"",sat:"",sun:"", total:"" } }
 function blankWeek(){ const o={}; for(const l of LINES){ if(l.type!=="spacer") o[l.key]=blankRow(); } return o }
 
-/* ------------------- State -------------------- */
 let state = {
   meta:{ weekOf:"" },
   data: blankWeek(),
@@ -301,27 +314,20 @@ const weekInput = document.getElementById("weekOf");
 const weekRange = document.getElementById("weekRange");
 
 /* -------- Mobile view (2 columns, swipe) ------ */
-let mobileStart = 0;         // starting day index for mobile window (0..5)
+let mobileStart = 0;
 const mobPrev   = document.getElementById("mobPrev");
 const mobNext   = document.getElementById("mobNext");
 const mobCtrls  = document.getElementById("mobileControls");
 
-function isMobilePortrait(){
-  // portrait-ish, narrow width
-  return window.matchMedia("(max-width: 760px)").matches;
-}
-function clampMobileStart(){
-  if(mobileStart<0) mobileStart=0;
-  if(mobileStart>5) mobileStart=5; // 7 days - 2 visible
-}
+function isMobilePortrait(){ return window.matchMedia("(max-width: 760px)").matches; }
+function clampMobileStart(){ if(mobileStart<0) mobileStart=0; if(mobileStart>5) mobileStart=5; }
 function applyMobileVisibility(){
   const isMob = isMobilePortrait();
   mobCtrls.style.display = isMob ? "flex" : "none";
-  const cells = document.querySelectorAll('#budgetTable [data-day-idx]');
-  cells.forEach(el=>{
+  const dayCells = document.querySelectorAll('#budgetTable [data-day-idx]');
+  dayCells.forEach(el=>{
     const idx = Number(el.getAttribute('data-day-idx'));
-    const hide = isMob && (idx<mobileStart || idx>=mobileStart+2);
-    el.style.display = hide ? "none" : "";
+    el.style.display = (isMob && (idx<mobileStart || idx>=mobileStart+2)) ? "none" : "";
   });
 }
 mobPrev.addEventListener("click", ()=>{ mobileStart--; clampMobileStart(); applyMobileVisibility(); });
@@ -334,11 +340,8 @@ swipeArea.addEventListener("touchstart",e=>{ touchX = e.changedTouches[0].client
 swipeArea.addEventListener("touchend",e=>{
   if(touchX==null) return;
   const dx=e.changedTouches[0].clientX - touchX;
-  const TH=40; // threshold px
-  if(Math.abs(dx)>TH){
-    if(dx<0) mobileStart++; else mobileStart--;
-    clampMobileStart(); applyMobileVisibility();
-  }
+  const TH=40;
+  if(Math.abs(dx)>TH){ if(dx<0) mobileStart++; else mobileStart--; clampMobileStart(); applyMobileVisibility(); }
   touchX=null;
 },{passive:true});
 window.addEventListener("resize", applyMobileVisibility);
@@ -378,12 +381,10 @@ firebase.auth().onAuthStateChanged(user=>{
 function baseSalesRow(){
   if (state.settings.base==="projected") return state.data.proj_sales;
   if (state.settings.base==="actual")    return state.data.actual_sales;
-  const out=blankRow();
-  let t=0;
+  const out=blankRow(); let t=0;
   for(const d of DAYS){
     const a=state.data.actual_sales?.[d]; const p=state.data.proj_sales?.[d];
-    out[d]=(a!=="" && a!=null) ? a : (p||"");
-    t+=num(out[d]);
+    out[d]=(a!=="" && a!=null) ? a : (p||""); t+=num(out[d]);
   }
   out.total=money(t); return out;
 }
@@ -454,12 +455,18 @@ function scheduleSave(){  clearTimeout(saveTimer ); saveTimer =setTimeout(()=> s
 function setHeaderDates(){
   const mondayISO=state.meta?.weekOf; const mon=mondayISO?parseLocalISO(mondayISO):null;
   const headerCells=document.querySelectorAll('#headerRow th[data-day-idx]');
-  headerCells.forEach((th,i)=> th.textContent = mon ? `${DAYNAME[i]} ${ordinal(addDays(mon,i).getDate())}` : DAYNAME[i]);
+  const useShort = isMobilePortrait();
+  headerCells.forEach((th,i)=>{
+    if(mon){
+      const d=addDays(mon,i);
+      th.textContent = (useShort?DAYSHORT[i]:DAYNAME[i]) + " " + ordinal(d.getDate());
+    }else{
+      th.textContent = useShort?DAYSHORT[i]:DAYNAME[i];
+    }
+  });
   weekRange.textContent = mon ? formatWeekRange(mon) : "";
 }
 function cellTdDayIdx(td,dayKey){ td.setAttribute("data-day-idx",DAYS.indexOf(dayKey)); return td }
-
-/* Build editable cell with stable bind id (caret preservation) */
 function buildInputCell(lineKey,dayKey){
   if(!state.data[lineKey]) state.data[lineKey]=blankRow();
   const td=cellTdDayIdx(document.createElement("td"),dayKey);
@@ -489,7 +496,6 @@ function buildPurchCell(lineKey,dayKey){
 function render(){
   setHeaderDates();
 
-  /* caret & focus preservation */
   const active = document.activeElement;
   const isInput = active && active.tagName==="INPUT" && active.dataset && active.dataset.bindid;
   const bindId  = isInput ? active.dataset.bindid : null;
@@ -514,14 +520,14 @@ function render(){
       tr.appendChild(cell);
     }
     const totalTd=document.createElement("td");
+    totalTd.classList.add("totals-col");
     const val=num(state.data[line.key].total);
-    totalTd.className=(line.type==="calcBudgetDays"||line.type==="calcSalesDelta")?("totals "+(val<0?"over":val>0?"under":"")):"totals";
+    totalTd.className += (line.type==="calcBudgetDays"||line.type==="calcSalesDelta")?(" totals "+(val<0?"over":val>0?"under":"")):" totals totals-col";
     totalTd.textContent=money(val);
     tr.appendChild(totalTd);
     tbody.appendChild(tr);
   }
 
-  /* restore focus/caret */
   if (bindId){
     const next = tbody.querySelector(`input[data-bindid="${bindId}"]`);
     if (next){
@@ -530,7 +536,6 @@ function render(){
     }
   }
 
-  /* apply mobile visibility (2 columns) */
   clampMobileStart(); applyMobileVisibility();
 }
 function updateSummary(){
@@ -538,7 +543,7 @@ function updateSummary(){
   const purch   = ["meat_purch","seafood_purch","bread_purch","produce_purch","pantry_purch","dairy_purch"].reduce((a,k)=>a+sumDays(state.data[k]),0);
   const proj    = sumDays(state.data.proj_sales);
   const act     = sumDays(state.data.actual_sales);
-  const salesDelta = DAYS.reduce((a,d)=> a + num(state.data.sales_delta?.[d]), 0); // respects "only when both exist"
+  const salesDelta = DAYS.reduce((a,d)=> a + num(state.data.sales_delta?.[d]), 0);
 
   document.getElementById("chipProj").textContent  = "$"+money(proj);
   document.getElementById("chipAct").textContent   = "$"+money(act);
@@ -677,9 +682,8 @@ function subscribe(iso){
     const base=blankWeek(); const remote=snap.exists?(snap.data()||{}):{};
     state.meta.weekOf = iso;
     state.settings = Object.assign({}, state.settings, remote.settings||{});
-    state.data     = Object.assign(base, remote.data||{});   // may be sparse
+    state.data     = Object.assign(base, remote.data||{});
     state.details  = remote.details || state.details || {};
-    // reset mobile window to the start when the week changes
     mobileStart = 0;
     recalc();
   });
@@ -769,7 +773,7 @@ function onWeekChange(raw){
   if(weekInput.value!==iso) weekInput.value=iso;
   localStorage.setItem(LS_WEEK_KEY, iso);
   state.meta.weekOf=iso;
-  mobileStart=0;                 // reset mobile window on change
+  mobileStart=0;
   subscribe(iso); setHeaderDates();
 }
 weekInput.addEventListener("change",e=>onWeekChange(e.target.value));
