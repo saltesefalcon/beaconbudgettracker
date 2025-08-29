@@ -29,11 +29,11 @@
     .day { background:#0b1220; border:1px solid #1f2937; border-radius:12px; padding:12px; margin-bottom:12px; }
     .day h3 { margin:0 0 10px; font-size:1.05rem; }
 
-    .row { 
-      display:grid; 
-      grid-template-columns: 1fr 120px 120px 120px 180px; 
-      gap:10px; 
-      align-items:center; 
+    .row {
+      display:grid;
+      grid-template-columns: 1fr 120px 120px 120px 180px;
+      gap:10px;
+      align-items:center;
     }
     .row + .row { margin-top:10px; }
     .label { color:var(--muted); }
@@ -46,8 +46,8 @@
       .row { grid-template-columns: 1fr 100px 100px 100px 150px; }
     }
     @media (max-width: 640px){
-      .row { 
-        grid-template-columns: 1fr 90px 90px 90px; 
+      .row {
+        grid-template-columns: 1fr 90px 90px 90px;
         grid-template-areas:
           "label budget spent ou"
           "button button button button";
@@ -59,16 +59,23 @@
       .row .button { grid-area: button; }
     }
 
-    /* Popover (purchases editor) */
+    /* Backdrop + draggable popover */
+    .shade {
+      position: fixed; inset: 0; background: rgba(0,0,0,.45);
+      z-index: 9998; display: none;
+    }
     .popover {
-      position:fixed; z-index:9999; background:var(--panel); border:1px solid #1f2937; border-radius:14px;
+      position: fixed; z-index: 9999; background: var(--panel); border:1px solid #1f2937; border-radius:14px;
       box-shadow:0 20px 50px rgba(0,0,0,.5); width:min(760px,95vw); min-width:520px; padding:14px; display:none;
+      top: 50vh; left: 50vw; transform: translate(-50%, -50%); /* centered by default */
+      touch-action: none; /* helps dragging on touch */
     }
     @media (max-width: 720px){
+      .shade { display: none; } /* keep page interactive behind the bottom sheet on small screens */
       .popover { left:0 !important; right:0 !important; width:100vw !important; min-width:0 !important;
-        bottom:0; top:auto !important; max-height:75vh; border-radius:16px 16px 0 0; }
+        bottom:0; top:auto !important; transform: none !important; max-height:75vh; border-radius:16px 16px 0 0; }
     }
-    .pop-header { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:10px; }
+    .pop-header { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:10px; cursor: move; }
     .pop-title { font-weight:700; }
     .pop-close { background:transparent; border:1px solid #374151; border-radius:8px; padding:4px 8px; cursor:pointer; }
     .grid-head, .grid-rows { display:grid; grid-template-columns: 120px 1fr 1fr 44px; gap:8px; align-items:center; }
@@ -147,7 +154,8 @@
     </div>
   </div>
 
-  <!-- Purchases popover -->
+  <!-- Backdrop + Purchases popover -->
+  <div id="shade" class="shade"></div>
   <div id="popover" class="popover"></div>
 
   <script>
@@ -180,6 +188,7 @@
     const weekRange = document.getElementById("weekRange");
     const daysEl = document.getElementById("days");
     const pop = document.getElementById("popover");
+    const shade = document.getElementById("shade");
 
     /************ Utils ************/
     function parseLocalISO(s){ if(!s) return null; const [y,m,d] = s.split("-").map(Number); const dt=new Date(y,(m||1)-1,(d||1)); dt.setHours(0,0,0,0); return dt; }
@@ -234,7 +243,7 @@
       lockBadge.textContent = isOwner ? "Editing (Owner)" : "View-only";
       lockBadge.classList.toggle("ok", isOwner);
       lockBadge.classList.toggle("no", !isOwner);
-      render(); // refresh button disabled state
+      render();
     });
 
     /************ Firestore subscribe ************/
@@ -268,40 +277,79 @@
     weekInput.addEventListener("change", e => onWeekChange(e.target.value));
     weekInput.addEventListener("input",  e => onWeekChange(e.target.value));
 
-    /************ Purchases popover ************/
-    let currentEdit = null; // { lineKey, dayKey, anchor }
+    /************ Purchases popover (centered + draggable) ************/
+    let currentEdit = null; // { lineKey, dayKey }
+    let dragging = false, dragDX = 0, dragDY = 0;
 
-    function openPopover(lineKey, dayKey, anchor){
-      if (!isOwner) return; // view-only for non-owner
-      currentEdit = { lineKey, dayKey, anchor };
+    function centerPopover(){
+      pop.style.top = '50vh';
+      pop.style.left = '50vw';
+      pop.style.transform = 'translate(-50%, -50%)';
+    }
+
+    function openPopover(lineKey, dayKey){
+      if (!isOwner) return;
+      currentEdit = { lineKey, dayKey };
+
       const items = getItems(lineKey, dayKey);
       if (items.length === 0) items.push({ amount:"", supplier: suppliersFor(lineKey)[0] || "Other", invoice:"" });
+
       drawPopover();
-      positionPopover(anchor);
+
+      // show centered with backdrop (desktop); mobile remains bottom sheet via CSS
+      centerPopover();
+      shade.style.display = window.matchMedia('(max-width: 720px)').matches ? 'none' : 'block';
       pop.style.display = "block";
+
       document.addEventListener("keydown", onEscClose);
-      window.addEventListener("resize", onReposition);
-      window.addEventListener("scroll", onReposition, true);
+      shade.addEventListener("click", closePopover);
       setTimeout(()=>{ const first=pop.querySelector("input[type='number']"); if(first) first.focus(); },0);
     }
+
     function closePopover(){
       pop.style.display = "none";
+      shade.style.display = "none";
       pop.innerHTML = "";
       document.removeEventListener("keydown", onEscClose);
-      window.removeEventListener("resize", onReposition);
-      window.removeEventListener("scroll", onReposition, true);
+      window.removeEventListener("pointermove", onDragMove);
+      window.removeEventListener("pointerup", onDragEnd);
+      dragging = false;
       currentEdit = null;
     }
     function onEscClose(e){ if (e.key==="Escape") closePopover(); }
-    function onReposition(){ if (!currentEdit) return; positionPopover(currentEdit.anchor); }
-    function positionPopover(anchor){
-      if (!anchor) { pop.style.top = "10vh"; pop.style.left = "50%"; pop.style.transform = "translateX(-50%)"; return; }
-      const r = anchor.getBoundingClientRect();
-      const margin = 8;
-      const top = Math.min(window.innerHeight - (pop.offsetHeight||360) - margin, Math.max(margin, r.bottom + 6));
-      const left = Math.min(window.innerWidth - (pop.offsetWidth||520) - margin, Math.max(margin, r.left));
-      pop.style.top = `${top}px`; pop.style.left = `${left}px`; pop.style.transform = "none";
+
+    function makeDraggable(){
+      // Only draggable on desktop layout
+      if (window.matchMedia('(max-width: 720px)').matches) return;
+      const header = pop.querySelector(".pop-header");
+      if (!header) return;
+
+      header.addEventListener("pointerdown", (e)=>{
+        dragging = true;
+        const rect = pop.getBoundingClientRect();
+        // Switch from centered transform to absolute left/top for dragging
+        pop.style.transform = "none";
+        pop.style.left = rect.left + "px";
+        pop.style.top = rect.top + "px";
+        dragDX = e.clientX - rect.left;
+        dragDY = e.clientY - rect.top;
+        window.addEventListener("pointermove", onDragMove);
+        window.addEventListener("pointerup", onDragEnd);
+      }, { passive:false });
     }
+    function onDragMove(e){
+      if (!dragging) return;
+      e.preventDefault();
+      const margin = 8;
+      let nx = e.clientX - dragDX;
+      let ny = e.clientY - dragDY;
+      const w = pop.offsetWidth, h = pop.offsetHeight;
+      nx = Math.max(margin, Math.min(window.innerWidth - w - margin, nx));
+      ny = Math.max(margin, Math.min(window.innerHeight - h - margin, ny));
+      pop.style.left = nx + "px";
+      pop.style.top  = ny + "px";
+    }
+    function onDragEnd(){ dragging = false; window.removeEventListener("pointermove", onDragMove); window.removeEventListener("pointerup", onDragEnd); }
 
     function getItems(lineKey, dayKey){
       if (!state) state = {};
@@ -318,7 +366,7 @@
       const supplierOptions = suppliers.map(s=>`<option value="${s}">${s}</option>`).join("");
 
       pop.innerHTML = `
-        <div class="pop-header">
+        <div class="pop-header" title="Drag to move">
           <div class="pop-title">${lineKey==="meat_purch"?"Meat Deliveries":"Seafood Deliveries"} · ${DAY_NAME[dayKey]}</div>
           <button class="pop-close" id="popCloseBtn">Close</button>
         </div>
@@ -369,6 +417,7 @@
       }
 
       drawRows(); updateTotal();
+
       pop.querySelector("#addLineBtn").addEventListener("click", ()=>{
         items.push({ amount:"", supplier: suppliers[0] || "Other", invoice:"" });
         drawRows(); updateTotal();
@@ -385,6 +434,9 @@
       });
       pop.querySelector("#popCancel").addEventListener("click", closePopover);
       pop.querySelector("#popCloseBtn").addEventListener("click", closePopover);
+
+      // enable dragging
+      makeDraggable();
     }
 
     /************ Render ************/
@@ -426,7 +478,7 @@
     }
 
     function buildRow(label, budgetKey, purchKey, dayKey, btnText){
-      const wrap = document.createElement("div"); 
+      const wrap = document.createElement("div");
       wrap.className = "row";
 
       const budget = num(state?.data?.[budgetKey]?.[dayKey]);
@@ -442,9 +494,8 @@
       btn.className = "btn button";
       btn.textContent = btnText;
       btn.disabled = !isOwner;
-      btn.addEventListener("click", (e)=> openPopover(purchKey, dayKey, e.currentTarget));
+      btn.addEventListener("click", ()=> openPopover(purchKey, dayKey));
 
-      // Append in the same order as grid columns; CSS handles wrapping on mobile
       wrap.appendChild(a); wrap.appendChild(b); wrap.appendChild(c); wrap.appendChild(d); wrap.appendChild(btn);
       return wrap;
     }
