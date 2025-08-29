@@ -15,8 +15,7 @@
     .toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom: 12px; }
     .toolbar > * { margin-right: 6px; }
     input[type="number"], input[type="text"], select {
-      background:#0b1220; color:var(--ink); border:1px solid #1f2937; border-radius:10px; padding:8px 10px; outline:0;
-      width: 100%;
+      background:#0b1220; color:var(--ink); border:1px solid #1f2937; border-radius:10px; padding:8px 10px; outline:0; width: 100%;
     }
     button { background:#1f2937; color:var(--ink); border:1px solid #374151; border-radius:10px; padding:8px 12px; cursor:pointer; }
     button.primary { background: var(--brand); border-color: #0284c7; color:white; }
@@ -44,15 +43,13 @@
     .howto { display:none; }
     .howto.open { display:block; }
 
-    .modal { position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.55); z-index:10000; }
-    .modal.open { display:flex; }
-    .modal .card { background:var(--panel); border:1px solid #1f2937; padding:16px; border-radius:14px; width:min(620px, 92vw); }
+    /* Auth status */
+    .auth { margin-left:auto; display:flex; gap:8px; align-items:center; }
+    .lock-badge { background:#0b1220; border:1px solid #374151; padding:6px 10px; border-radius:10px; font-weight:600; }
+    .lock-badge.ok { border-color:#14532d; color:#22c55e; }
+    .lock-badge.no { border-color:#7f1d1d; color:#ef4444; }
 
-    .row { display:grid; grid-template-columns: 1fr 180px; gap:10px; align-items:center; margin-bottom:8px; }
-    .row label { color:var(--muted); }
-    .row .pct { display:flex; align-items:center; gap:6px; }
-
-    /* Mobile day slider */
+    /* Mobile: 2-day slider */
     .day-slider { display:none; align-items:center; justify-content:center; gap:10px; margin:10px 0 0; }
     .day-slider .arrows { display:flex; gap:8px; }
     .day-slider button { padding:6px 10px; }
@@ -81,12 +78,6 @@
     .pop-actions { display:flex; justify-content:space-between; align-items:center; margin-top:12px; }
     .mini { font-size:.95rem; padding:8px 12px; }
     .total-badge { background:#0b1220; border:1px solid #374151; padding:6px 10px; border-radius:10px; }
-
-    /* Auth */
-    .auth { margin-left:auto; display:flex; gap:8px; align-items:center; }
-    .lock-badge { background:#0b1220; border:1px solid #374151; padding:6px 10px; border-radius:10px; font-weight:600; }
-    .lock-badge.ok { border-color:#14532d; color:#22c55e; }
-    .lock-badge.no { border-color:#7f1d1d; color:#ef4444; }
   </style>
 
   <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
@@ -134,6 +125,7 @@
         <div class="chip" id="chipNet"><b>Net O/U:</b> <span id="chipNetVal">$0.00</span></div>
       </div>
 
+      <!-- Mobile day slider (2 days visible) -->
       <div class="day-slider">
         <div class="arrows">
           <button id="prevDays">◀</button>
@@ -240,10 +232,11 @@
     const OWNER_UID = "vv2z07G4g5ZG8wsLgJQGkQFxFaf2";
     const URL_WS = new URLSearchParams(location.search).get("ws") || "default";
     const LS_WEEK_KEY = "tracker_last_week";
-    
-if (new URLSearchParams(location.search).has('reset')) {
-  localStorage.removeItem('beacon_budget_draft');
-}
+
+    /* one-time reset helper: open page with ?reset=1 to clear old drafts */
+    if (new URLSearchParams(location.search).has('reset')) {
+      localStorage.removeItem('beacon_budget_draft');
+    }
 
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
@@ -309,13 +302,7 @@ if (new URLSearchParams(location.search).has('reset')) {
 
     /***************** Build blank week from LINES *****************/
     function blankRow(){ return { mon:"",tue:"",wed:"",thu:"",fri:"",sat:"",sun:"", total:"" }; }
-    function blankWeek(){
-      const o={};
-      for (const l of LINES){
-        if (l.type!=="spacer") o[l.key]=blankRow();
-      }
-      return o;
-    }
+    function blankWeek(){ const o={}; for(const l of LINES){ if(l.type!=="spacer") o[l.key]=blankRow(); } return o; }
 
     /***************** App state *****************/
     let state = {
@@ -327,7 +314,7 @@ if (new URLSearchParams(location.search).has('reset')) {
         pct: { meat:25, sea:15, bread:10, produce:20, pantry:15, dairy:15 },
         suppliers: { meat:[], sea:[], bread:[], produce:[], pantry:[], dairy:[] }
       },
-      details: {}                      // per-day line items (saved to Firestore)
+      details: {}                      // per-day line items
     };
 
     /***************** DOM refs *****************/
@@ -406,8 +393,7 @@ if (new URLSearchParams(location.search).has('reset')) {
       if (state.settings.base === "projected") return state.data.proj_sales;
       if (state.settings.base === "actual")    return state.data.actual_sales;
       // smart: actual when present, else projected
-      const out = blankRow();
-      let tot=0;
+      const out = blankRow(); let tot=0;
       for (const d of DAYS){
         const a = state.data.actual_sales?.[d];
         const p = state.data.proj_sales?.[d];
@@ -509,7 +495,9 @@ if (new URLSearchParams(location.search).has('reset')) {
 
     function cellTdDayIdx(td, dayKey){ td.setAttribute("data-day-idx", DAYS.indexOf(dayKey)); return td; }
 
+    /* GUARDS: make sure rows exist before cells use them */
     function buildPurchCell(lineKey, dayKey){
+      if (!state.data[lineKey]) state.data[lineKey] = blankRow();
       const td=cellTdDayIdx(document.createElement("td"), dayKey);
       const btn=document.createElement("button");
       const val = state.data[lineKey][dayKey];
@@ -523,6 +511,7 @@ if (new URLSearchParams(location.search).has('reset')) {
     }
 
     function buildReadOnlyCell(lineKey, dayKey, colorize=false){
+      if (!state.data[lineKey]) state.data[lineKey] = blankRow();
       const td=cellTdDayIdx(document.createElement("td"), dayKey);
       const v = num(state.data[lineKey][dayKey]);
       td.className="totals";
@@ -532,6 +521,7 @@ if (new URLSearchParams(location.search).has('reset')) {
     }
 
     function buildInputCell(lineKey, dayKey){
+      if (!state.data[lineKey]) state.data[lineKey] = blankRow();
       const td=cellTdDayIdx(document.createElement("td"), dayKey);
       const input=document.createElement("input");
       input.type="number"; input.step="0.01"; input.inputMode="decimal";
@@ -539,8 +529,7 @@ if (new URLSearchParams(location.search).has('reset')) {
       input.placeholder="";
       input.addEventListener("input",(e)=>{
         state.data[lineKey][dayKey]=e.target.value;
-        scheduleRecalc();
-        persist(); scheduleSave();
+        scheduleRecalc(); persist(); scheduleSave();
       });
       td.appendChild(input);
       return td;
@@ -548,6 +537,12 @@ if (new URLSearchParams(location.search).has('reset')) {
 
     function render(){
       setHeaderDates();
+
+      // HEALER: ensure all rows exist (covers very old local drafts)
+      for (const l of LINES) {
+        if (l.type !== "spacer" && !state.data[l.key]) state.data[l.key] = blankRow();
+      }
+
       tbody.innerHTML="";
       for (const line of LINES){
         const tr=document.createElement("tr");
@@ -733,9 +728,24 @@ if (new URLSearchParams(location.search).has('reset')) {
 
     /***************** Persistence (local + Firestore) *****************/
     function persist(){ localStorage.setItem("beacon_budget_draft", JSON.stringify(state)); }
+
+    // ROBUST loader that heals old drafts by merging onto a full blankWeek
     function load(){
-      const raw=localStorage.getItem("beacon_budget_draft"); if(!raw) return;
-      try{ const obj=JSON.parse(raw); if(obj){ state=obj; if(!state.details) state.details={}; if(!state.data) state.data=blankWeek(); } }catch{}
+      const raw = localStorage.getItem("beacon_budget_draft");
+      if (!raw) return;
+      try {
+        const obj = JSON.parse(raw);
+        if (!obj) return;
+        const base = blankWeek();
+        state = { ...state, ...obj };
+        state.data    = Object.assign(base, obj.data || {});
+        state.details = obj.details || {};
+        if (!state.settings) state.settings = {};
+        if (!state.settings.pct) state.settings.pct = { meat:25, sea:15, bread:10, produce:20, pantry:15, dairy:15 };
+        if (!state.settings.suppliers) state.settings.suppliers = { meat:[], sea:[], bread:[], produce:[], pantry:[], dairy:[] };
+      } catch (e) {
+        console.warn("Failed to parse local draft, ignoring.", e);
+      }
     }
 
     async function saveStatePartial(updates){
@@ -758,7 +768,7 @@ if (new URLSearchParams(location.search).has('reset')) {
         const base = blankWeek();
         const remote = snap.exists ? (snap.data()||{}) : {};
         state.settings = Object.assign({}, state.settings, remote.settings||{});
-        state.data     = Object.assign(base, remote.data||{});   // <-- ensures all rows exist
+        state.data     = Object.assign(base, remote.data||{});
         state.details  = remote.details || state.details || {};
         render(); updateSummary();
       });
@@ -813,7 +823,11 @@ if (new URLSearchParams(location.search).has('reset')) {
       const key=prompt("Enter name:\n"+items.map(k=>k.replace("beacon_budget_","")).join("\n"));
       if(!key) return;
       const raw=localStorage.getItem("beacon_budget_"+key); if(!raw){ alert("Not found."); return; }
-      state=JSON.parse(raw); if(!state.details) state.details={}; if(!state.data) state.data=blankWeek();
+      const obj=JSON.parse(raw);
+      const base=blankWeek();
+      state={...state,...obj};
+      state.data=Object.assign(base,obj.data||{});
+      state.details=obj.details||{};
       recalc(); persist(); scheduleSave();
     });
 
@@ -823,7 +837,7 @@ if (new URLSearchParams(location.search).has('reset')) {
     });
     document.getElementById("importFile").addEventListener("change", (e)=>{
       const f=e.target.files?.[0]; if(!f) return; const r=new FileReader();
-      r.onload=(ev)=>{ try{ const obj=JSON.parse(ev.target.result); if(obj){ state=obj; if(!state.details) state.details={}; if(!state.data) state.data=blankWeek(); recalc(); persist(); scheduleSave(); } } catch { alert("Invalid file"); } };
+      r.onload=(ev)=>{ try{ const obj=JSON.parse(ev.target.result); if(obj){ const base=blankWeek(); state={...state,...obj}; state.data=Object.assign(base,obj.data||{}); state.details=obj.details||{}; recalc(); persist(); scheduleSave(); } } catch { alert("Invalid file"); } };
       r.readAsText(f);
     });
 
